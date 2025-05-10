@@ -1,18 +1,15 @@
-from flask import Flask, render_template, jsonify, request, redirect, url_for, flash
-from flask_login import login_required, login_user, logout_user, current_user
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask_login import login_user, login_required, logout_user, current_user
 import sqlite3
 import os
-import sys
-from datetime import datetime
-
-# Add parent directory to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from gpt.comment_insights import CommentAnalyzer
-from comments.fetch_comments import YouTubeCommentFetcher
-from auth import login_manager, init_auth_db, register_user, verify_user
+from .auth import (
+    login_manager, User, register_user, verify_user, create_password_reset_token, 
+    verify_reset_token, reset_password, get_pending_users, get_all_users, 
+    update_user_status, admin_required
+)
 
 app = Flask(__name__)
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-key-change-this')  # Change in production
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-key-change-this')
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
@@ -28,31 +25,40 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """Handle user login."""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+        
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        user = verify_user(username, password)
+        user, error = verify_user(username, password)
         
         if user:
             login_user(user)
-            return redirect(url_for('index'))
-        flash('Invalid username or password')
-    
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for('index'))
+        else:
+            flash(error or 'Invalid username or password')
+            
     return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     """Handle user registration."""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+        
     if request.method == 'POST':
         username = request.form.get('username')
         email = request.form.get('email')
         password = request.form.get('password')
         
         if register_user(username, email, password):
-            flash('Registration successful! Please login.')
+            flash('Registration successful! Please wait for an administrator to activate your account.')
             return redirect(url_for('login'))
-        flash('Username or email already exists')
-    
+        else:
+            flash('Username or email already exists')
+            
     return render_template('register.html')
 
 @app.route('/logout')
@@ -61,6 +67,80 @@ def logout():
     """Handle user logout."""
     logout_user()
     return redirect(url_for('login'))
+
+@app.route('/reset-password', methods=['GET', 'POST'])
+def reset_password_request():
+    """Handle password reset request."""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+        
+    if request.method == 'POST':
+        email = request.form.get('email')
+        token = create_password_reset_token(email)
+        
+        if token:
+            # In a production environment, send this via email
+            reset_url = url_for('reset_password_with_token', token=token, _external=True)
+            flash(f'Password reset link (for development): {reset_url}')
+        else:
+            flash('Email address not found')
+            
+    return render_template('reset_password.html')
+
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password_with_token(token):
+    """Handle password reset with token."""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+        
+    if request.method == 'POST':
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if password != confirm_password:
+            flash('Passwords do not match')
+        elif reset_password(token, password):
+            flash('Password has been reset successfully')
+            return redirect(url_for('login'))
+        else:
+            flash('Invalid or expired reset link')
+            
+    return render_template('reset_password.html', token=token)
+
+@app.route('/admin')
+@login_required
+@admin_required
+def admin_dashboard():
+    """Render the admin dashboard."""
+    pending_users = get_pending_users()
+    all_users = get_all_users()
+    return render_template('admin.html', pending_users=pending_users, all_users=all_users)
+
+@app.route('/admin/users/<int:user_id>/activate', methods=['POST'])
+@login_required
+@admin_required
+def activate_user(user_id):
+    """Activate a user."""
+    update_user_status(user_id, True)
+    flash('User activated successfully')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/users/<int:user_id>/toggle', methods=['POST'])
+@login_required
+@admin_required
+def toggle_user_status(user_id):
+    """Toggle a user's status."""
+    action = request.form.get('action')
+    if action == 'toggle_active':
+        user = User.get(user_id)
+        update_user_status(user_id, not user.is_active)
+        flash(f'User {"activated" if not user.is_active else "deactivated"} successfully')
+    elif action == 'toggle_admin':
+        user = User.get(user_id)
+        if user.id != current_user.id:  # Prevent self-demotion
+            update_user_status(user_id, user.is_active, not user.is_admin)
+            flash(f'User admin status {"granted" if not user.is_admin else "revoked"} successfully')
+    return redirect(url_for('admin_dashboard'))
 
 @app.route('/api/videos')
 @login_required
