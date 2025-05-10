@@ -39,9 +39,10 @@ class CommentAnalyzer:
                 c.text,
                 c.author,
                 c.timestamp,
-                c.likes,
-                c.reply_count,
-                c.parent_id
+                c.emotional_score,
+                c.responded,
+                c.id,
+                c.video_id
             FROM comments c
         """
         params = []
@@ -67,7 +68,7 @@ class CommentAnalyzer:
                 "time_analysis": self._analyze_time_patterns(comments),
                 "top_commenters": self._get_top_commenters(comments),
                 "keyword_analysis": self._analyze_keywords(comments),
-                "response_patterns": self._analyze_response_patterns(comments),
+                "emotional_analysis": self._analyze_emotions(comments),
                 "sample_comments": []
             }
             
@@ -80,8 +81,7 @@ class CommentAnalyzer:
                     "classification": comment[0],
                     "mod_action": comment[1],
                     "timestamp": comment[4],
-                    "likes": comment[5],
-                    "replies": comment[6]
+                    "emotional_score": comment[5]
                 }
                 stats["sample_comments"].append(comment_info)
                 print(f"Classification: {comment[0]}, Mod Action: {comment[1]}, Text: {comment[2][:50]}...")
@@ -94,15 +94,13 @@ class CommentAnalyzer:
 
     def _calculate_engagement_metrics(self, comments: List[Tuple]) -> Dict:
         """Calculate engagement metrics from comments."""
-        total_likes = sum(comment[5] or 0 for comment in comments)
-        total_replies = sum(comment[6] or 0 for comment in comments)
+        responded_count = sum(1 for comment in comments if comment[6])  # Count responded comments
         
         return {
-            "avg_likes_per_comment": round(total_likes / len(comments), 2) if comments else 0,
-            "avg_replies_per_comment": round(total_replies / len(comments), 2) if comments else 0,
-            "total_likes": total_likes,
-            "total_replies": total_replies,
-            "reply_ratio": round(len([c for c in comments if c[7]]) / len(comments) * 100, 2) if comments else 0
+            "total_comments": len(comments),
+            "responded_comments": responded_count,
+            "response_rate": round(responded_count / len(comments) * 100, 2) if comments else 0,
+            "unique_authors": len(set(comment[3] for comment in comments))
         }
 
     def _analyze_time_patterns(self, comments: List[Tuple]) -> Dict:
@@ -139,17 +137,24 @@ class CommentAnalyzer:
             if author not in author_stats:
                 author_stats[author] = {
                     "comment_count": 0,
-                    "total_likes": 0,
-                    "total_replies": 0
+                    "avg_emotional_score": 0,
+                    "classifications": Counter()
                 }
             author_stats[author]["comment_count"] += 1
-            author_stats[author]["total_likes"] += comment[5] or 0
-            author_stats[author]["total_replies"] += comment[6] or 0
+            if comment[5]:  # emotional_score
+                author_stats[author]["avg_emotional_score"] += comment[5]
+            if comment[0]:  # classification
+                author_stats[author]["classifications"][comment[0]] += 1
+        
+        # Calculate averages and get top 5
+        for stats in author_stats.values():
+            if stats["comment_count"] > 0:
+                stats["avg_emotional_score"] = round(stats["avg_emotional_score"] / stats["comment_count"], 2)
         
         # Sort by comment count and get top 5
         top_authors = sorted(
             author_stats.items(),
-            key=lambda x: (x[1]["comment_count"], x[1]["total_likes"]),
+            key=lambda x: x[1]["comment_count"],
             reverse=True
         )[:5]
         
@@ -176,19 +181,22 @@ class CommentAnalyzer:
             "avg_words_per_comment": round(len(words) / len(comments), 2) if comments else 0
         }
 
-    def _analyze_response_patterns(self, comments: List[Tuple]) -> Dict:
-        """Analyze patterns in comment responses."""
-        response_times = []
-        thread_depths = Counter()
+    def _analyze_emotions(self, comments: List[Tuple]) -> Dict:
+        """Analyze emotional scores of comments."""
+        scores = [comment[5] for comment in comments if comment[5] is not None]
         
-        for comment in comments:
-            if comment[7]:  # If it's a reply
-                thread_depths[comment[7]] += 1
-        
+        if not scores:
+            return {"emotional_analysis": "No emotional scores available"}
+            
         return {
-            "total_threads": len(thread_depths),
-            "max_thread_depth": max(thread_depths.values()) if thread_depths else 0,
-            "avg_replies_per_thread": round(sum(thread_depths.values()) / len(thread_depths), 2) if thread_depths else 0
+            "avg_emotional_score": round(sum(scores) / len(scores), 2),
+            "max_emotional_score": round(max(scores), 2),
+            "min_emotional_score": round(min(scores), 2),
+            "emotional_distribution": {
+                "positive": len([s for s in scores if s > 0.5]),
+                "neutral": len([s for s in scores if 0.3 <= s <= 0.7]),
+                "negative": len([s for s in scores if s < 0.5])
+            }
         }
 
     def generate_summary(self, stats):
@@ -218,8 +226,8 @@ Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 ## Keyword Analysis
 {self._format_dict(stats.get('keyword_analysis', {}))}
 
-## Response Patterns
-{self._format_dict(stats.get('response_patterns', {}))}
+## Emotional Analysis
+{self._format_dict(stats.get('emotional_analysis', {}))}
 
 ## Sample Comments
 """
@@ -228,8 +236,7 @@ Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 - Author: {comment['author']}
   Classification: {comment['classification']}
   Action: {comment['mod_action']}
-  Likes: {comment['likes']}
-  Replies: {comment['replies']}
+  Emotional Score: {comment['emotional_score']}
   Text: "{comment['text']}"
 """
         return summary
@@ -281,8 +288,8 @@ Top Commenters:
 Keyword Analysis:
 {json.dumps(stats['keyword_analysis'], indent=2)}
 
-Response Patterns:
-{json.dumps(stats['response_patterns'], indent=2)}
+Emotional Analysis:
+{json.dumps(stats['emotional_analysis'], indent=2)}
 
 Provide insights into audience engagement, potential content trends, and recommendations for content creators."""
 
