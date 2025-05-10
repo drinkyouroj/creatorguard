@@ -19,7 +19,8 @@ except Exception as e:
     print(f"Error initializing OpenAI client: {e}")
     client = None
 
-MODEL = os.getenv('OPENAI_MODEL', 'gpt-4-turbo')
+# Use a valid OpenAI model
+MODEL = os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo')
 
 class CommentAnalyzer:
     def __init__(self, db_path='creatorguard.db'):
