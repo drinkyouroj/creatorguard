@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Event Listeners
 function setupEventListeners() {
+    // Video selection
     document.getElementById('videoSelect').addEventListener('change', (e) => {
         currentVideoId = e.target.value;
         if (currentVideoId) {
@@ -23,6 +24,7 @@ function setupEventListeners() {
         }
     });
 
+    // Pagination
     document.getElementById('prevPage').addEventListener('click', () => {
         if (currentPage > 1) {
             loadComments(currentVideoId, currentPage - 1);
@@ -31,6 +33,39 @@ function setupEventListeners() {
 
     document.getElementById('nextPage').addEventListener('click', () => {
         loadComments(currentVideoId, currentPage + 1);
+    });
+
+    // Video import
+    document.getElementById('importForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const videoId = document.getElementById('newVideoId').value.trim();
+        if (!videoId) {
+            setImportStatus('Please enter a video ID', 'error');
+            return;
+        }
+
+        setImportStatus('Importing comments...', 'info');
+        try {
+            const response = await fetch('/api/videos/import', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `video_id=${encodeURIComponent(videoId)}`
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                setImportStatus(data.message, 'success');
+                document.getElementById('newVideoId').value = '';
+                loadVideos();  // Refresh video list
+            } else {
+                setImportStatus(data.error || 'Import failed', 'error');
+            }
+        } catch (error) {
+            setImportStatus('Error importing video', 'error');
+            console.error('Import error:', error);
+        }
     });
 }
 
@@ -247,4 +282,14 @@ function processTimeData(timeAnalysis) {
         labels: ['First Comment', 'Most Active', 'Last Comment'],
         data: [0, 1, 0]  // Placeholder data - replace with actual time-series data
     };
+}
+
+function setImportStatus(message, type = 'info') {
+    const statusEl = document.getElementById('importStatus');
+    statusEl.textContent = message;
+    statusEl.className = `mt-2 text-sm ${
+        type === 'error' ? 'text-red-600' :
+        type === 'success' ? 'text-green-600' :
+        'text-gray-500'
+    }`;
 }

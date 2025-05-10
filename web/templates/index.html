@@ -21,18 +21,43 @@
                         <h1 class="text-xl font-bold text-gray-800">CreatorGuard</h1>
                     </div>
                 </div>
+                <div class="flex items-center">
+                    <span class="text-gray-600 mr-4">{{ current_user.username }}</span>
+                    <a href="{{ url_for('logout') }}" 
+                       class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700">
+                        Logout
+                    </a>
+                </div>
             </div>
         </div>
     </nav>
 
     <!-- Main Content -->
     <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <!-- Video Selection -->
+        <!-- Video Import and Selection -->
         <div class="bg-white rounded-lg shadow p-6 mb-6">
-            <h2 class="text-lg font-semibold mb-4">Select Video</h2>
-            <select id="videoSelect" class="w-full p-2 border rounded">
-                <option value="">Loading videos...</option>
-            </select>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Video Import -->
+                <div>
+                    <h2 class="text-lg font-semibold mb-4">Import New Video</h2>
+                    <form id="importForm" class="flex gap-4">
+                        <input type="text" id="newVideoId" placeholder="Enter YouTube Video ID" 
+                               class="flex-1 p-2 border rounded focus:ring-indigo-500 focus:border-indigo-500">
+                        <button type="submit" 
+                                class="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
+                            Import
+                        </button>
+                    </form>
+                    <p id="importStatus" class="mt-2 text-sm text-gray-500"></p>
+                </div>
+                <!-- Video Selection -->
+                <div>
+                    <h2 class="text-lg font-semibold mb-4">Select Video</h2>
+                    <select id="videoSelect" class="w-full p-2 border rounded">
+                        <option value="">Loading videos...</option>
+                    </select>
+                </div>
+            </div>
         </div>
 
         <!-- Stats Grid -->
