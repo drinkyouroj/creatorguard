@@ -6,7 +6,11 @@ from nltk.sentiment import SentimentIntensityAnalyzer
 from transformers import pipeline
 from collections import Counter
 import re
-from ..utils.logger import setup_logger, log_error, log_warning
+import sys
+
+# Add project root to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.logger import setup_logger, log_error, log_warning
 
 # Download required NLTK data
 nltk.download('vader_lexicon', quiet=True)
