@@ -7,10 +7,12 @@ from transformers import pipeline
 from collections import Counter
 import re
 import sys
+import json
+from .spam_detector import SpamDetector
 
 # Add project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.logger import setup_logger, log_error, log_warning
+from utils.logger import setup_logger, log_error, log_warning, log_info
 
 # Download required NLTK data
 nltk.download('vader_lexicon', quiet=True)
@@ -20,6 +22,7 @@ class CommentAnalyzer:
         """Initialize the comment analyzer."""
         self.db_path = db_path
         self.logger = setup_logger('comment_analyzer')
+        self.spam_detector = SpamDetector(db_path)
         
         try:
             self.sia = SentimentIntensityAnalyzer()
@@ -30,106 +33,151 @@ class CommentAnalyzer:
             
         try:
             # Load toxicity classifier
-            self.toxicity = pipeline('text-classification', 
-                                   model='unitary/toxic-bert', 
-                                   return_all_scores=True)
+            self.toxicity_pipeline = pipeline(
+                "text-classification",
+                model="unitary/toxic-bert",
+                return_all_scores=True
+            )
             self.logger.info("Initialized toxic-bert model")
         except Exception as e:
-            log_error(self.logger, e, "Failed to initialize toxic-bert")
-            raise
+            log_error(self.logger, e, "Failed to initialize toxicity model")
+            self.toxicity_pipeline = None
+
+    def analyze_comment(self, text):
+        """Analyze a single comment for toxicity and spam."""
+        try:
+            # Get toxicity scores
+            toxicity_scores = self.get_toxicity_scores(text)
+            
+            # Get spam prediction
+            spam_result = self.spam_detector.predict_spam(text)
+            
+            # Determine classification
+            classification = self.determine_classification(
+                toxicity_scores.get('toxicity', 0),
+                spam_result['spam_score']
+            )
+            
+            return {
+                'classification': classification,
+                'toxicity_score': toxicity_scores.get('toxicity', 0),
+                'toxicity_details': json.dumps(toxicity_scores),
+                'spam_score': spam_result['spam_score'],
+                'is_spam': spam_result['is_spam'],
+                'spam_features': spam_result['spam_features']
+            }
+            
+        except Exception as e:
+            log_error(self.logger, e, f"Failed to analyze comment: {text[:100]}...")
+            return None
+
+    def determine_classification(self, toxicity_score, spam_score):
+        """Determine comment classification based on toxicity and spam scores."""
+        if spam_score >= 0.7:
+            return 'spam'
+        elif toxicity_score >= 0.8:
+            return 'toxic'
+        elif toxicity_score >= 0.5 or spam_score >= 0.4:
+            return 'questionable'
+        return 'safe'
 
     def analyze_comments(self, video_id):
-        """Analyze all unanalyzed comments for a video."""
-        self.logger.info(f"Starting analysis for video {video_id}")
-        
+        """Analyze all comments for a video."""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-
+            
             # Get unanalyzed comments
             cursor.execute("""
                 SELECT comment_id, text 
                 FROM comments 
                 WHERE video_id = ? 
-                AND classification IS NULL
+                AND (classification IS NULL OR spam_score IS NULL)
             """, (video_id,))
-            comments = cursor.fetchall()
-
-            self.logger.info(f"Found {len(comments)} unanalyzed comments")
             
-            analysis_results = {
-                'total': len(comments),
-                'processed': 0,
-                'errors': 0,
-                'classifications': Counter()
-            }
+            comments = cursor.fetchall()
+            total = len(comments)
+            processed = 0
+            errors = 0
             
             for comment_id, text in comments:
                 try:
-                    # Get sentiment scores
-                    sentiment_scores = self.sia.polarity_scores(text)
-                    compound_score = sentiment_scores['compound']
+                    # Analyze comment
+                    results = self.analyze_comment(text)
+                    if not results:
+                        errors += 1
+                        continue
                     
-                    # Get toxicity scores with detailed analysis
-                    toxicity_result = self._analyze_toxicity(text)
-                    
-                    # Determine classification and moderation action
-                    classification = self._get_classification(compound_score, toxicity_result)
-                    mod_action = self._get_mod_action(classification, toxicity_result)
-                    
-                    # Update database with detailed analysis
+                    # Update database
                     cursor.execute("""
                         UPDATE comments 
                         SET classification = ?,
-                            mod_action = ?,
-                            emotional_score = ?,
                             toxicity_score = ?,
-                            sentiment_scores = ?,
-                            toxicity_details = ?
+                            toxicity_details = ?,
+                            spam_score = ?,
+                            is_spam = ?,
+                            spam_features = ?
                         WHERE comment_id = ?
                     """, (
-                        classification,
-                        mod_action,
-                        compound_score,
-                        toxicity_result['score'],
-                        str(sentiment_scores),
-                        str(toxicity_result['details']),
+                        results['classification'],
+                        results['toxicity_score'],
+                        results['toxicity_details'],
+                        results['spam_score'],
+                        results['is_spam'],
+                        results['spam_features'],
                         comment_id
                     ))
                     
-                    analysis_results['processed'] += 1
-                    analysis_results['classifications'][classification] += 1
+                    processed += 1
                     
                 except Exception as e:
-                    analysis_results['errors'] += 1
                     log_error(self.logger, e, f"Failed to analyze comment {comment_id}")
-                    continue
-
-            conn.commit()
+                    errors += 1
             
-            # Log analysis results
-            self.logger.info(f"Analysis complete: {analysis_results['processed']} processed, "
-                           f"{analysis_results['errors']} errors")
-            for cls, count in analysis_results['classifications'].items():
-                self.logger.info(f"{cls}: {count}")
-
-            # Get and return analysis summary
-            summary = self.get_analysis_summary(video_id)
-            return summary
-
-        except sqlite3.Error as e:
-            log_error(self.logger, e, f"Database error during analysis of video {video_id}")
-            raise
+            conn.commit()
+            log_info(self.logger, f"Analysis complete: {processed} processed, {errors} errors")
+            
         except Exception as e:
-            log_error(self.logger, e, f"Unexpected error during analysis of video {video_id}")
-            raise
+            log_error(self.logger, e, "Failed to analyze comments")
         finally:
             conn.close()
 
-    def _analyze_toxicity(self, text):
+    def mark_comment_as_spam(self, comment_id, is_spam):
+        """Mark a comment as spam/not spam and use it for training."""
+        try:
+            self.spam_detector.mark_as_spam(comment_id, is_spam)
+            
+            # Retrain model if we have enough new training data
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT COUNT(*) FROM spam_training 
+                WHERE trained_at > (
+                    SELECT COALESCE(MAX(created_at), '1970-01-01')
+                    FROM model_versions
+                    WHERE model_type = 'spam'
+                )
+            """)
+            
+            new_samples = cursor.fetchone()[0]
+            conn.close()
+            
+            # Retrain if we have at least 10 new samples
+            if new_samples >= 10:
+                metrics = self.spam_detector.train()
+                return {'status': 'retrained', 'metrics': metrics}
+            
+            return {'status': 'marked'}
+            
+        except Exception as e:
+            log_error(self.logger, e, f"Failed to mark comment {comment_id} as spam")
+            return {'status': 'error', 'error': str(e)}
+
+    def get_toxicity_scores(self, text):
         """Perform detailed toxicity analysis."""
         try:
-            scores = self.toxicity(text)[0]
+            scores = self.toxicity_pipeline(text)[0]
             
             # Get the highest scoring category
             max_score = max(scores, key=lambda x: x['score'])
@@ -157,38 +205,6 @@ class CommentAnalyzer:
         except Exception as e:
             log_error(self.logger, e, "Error in toxicity analysis")
             return {'label': 'unknown', 'score': 0.0, 'details': {}}
-
-    def _get_classification(self, sentiment_score, toxicity_result):
-        """Determine comment classification based on sentiment and toxicity."""
-        try:
-            if toxicity_result['label'] == 'toxic' and toxicity_result['score'] > 0.7:
-                return 'toxic'
-            elif toxicity_result['label'] == 'toxic' and toxicity_result['score'] > 0.4:
-                return 'questionable'
-            elif sentiment_score >= 0.3:
-                return 'positive'
-            elif sentiment_score <= -0.3:
-                return 'negative'
-            else:
-                return 'neutral'
-        except Exception as e:
-            log_error(self.logger, e, "Error in classification")
-            return 'unknown'
-
-    def _get_mod_action(self, classification, toxicity_result):
-        """Determine moderation action based on classification."""
-        try:
-            if classification == 'toxic':
-                return 'hide'
-            elif classification == 'questionable':
-                return 'flag'
-            elif toxicity_result['score'] > 0.3:
-                return 'review'
-            else:
-                return None
-        except Exception as e:
-            log_warning(self.logger, f"Error determining mod action: {e}")
-            return None
 
     def get_analysis_summary(self, video_id):
         """Get summary of comment analysis for a video."""

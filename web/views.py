@@ -183,3 +183,22 @@ def import_video():
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@bp.route('/api/comments/<comment_id>/mark_spam', methods=['POST'])
+@login_required
+def mark_comment_spam(comment_id):
+    """Mark a comment as spam or not spam."""
+    try:
+        data = request.get_json()
+        is_spam = data.get('is_spam', True)
+        
+        analyzer = CommentAnalyzer()
+        result = analyzer.mark_comment_as_spam(comment_id, is_spam)
+        
+        if result['status'] == 'error':
+            return jsonify({'error': result['error']}), 500
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

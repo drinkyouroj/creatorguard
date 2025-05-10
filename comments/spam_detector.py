@@ -1,0 +1,240 @@
+import os
+import json
+import sqlite3
+from datetime import datetime
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
+import joblib
+import re
+from collections import Counter
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+
+# Download required NLTK data
+nltk.download('punkt')
+nltk.download('stopwords')
+nltk.download('averaged_perceptron_tagger')
+
+class SpamDetector:
+    def __init__(self, db_path='creatorguard.db', model_dir='models'):
+        """Initialize spam detector with database connection and model loading."""
+        self.db_path = db_path
+        self.model_dir = model_dir
+        self.vectorizer = None
+        self.model = None
+        
+        # Create models directory if it doesn't exist
+        os.makedirs(model_dir, exist_ok=True)
+        
+        # Load or initialize model
+        self.load_or_initialize_model()
+
+    def extract_features(self, text):
+        """Extract spam-related features from text."""
+        features = {
+            'text_length': len(text),
+            'word_count': len(text.split()),
+            'uppercase_ratio': sum(1 for c in text if c.isupper()) / len(text) if text else 0,
+            'url_count': len(re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', text)),
+            'mention_count': len(re.findall(r'@\w+', text)),
+            'hashtag_count': len(re.findall(r'#\w+', text)),
+            'emoji_count': len(re.findall(r'[\U0001F300-\U0001F9FF]', text)),
+            'exclamation_count': text.count('!'),
+            'question_count': text.count('?'),
+            'has_phone': 1 if re.search(r'\d{3}[-.]?\d{3}[-.]?\d{4}', text) else 0,
+            'has_email': 1 if re.search(r'[^@]+@[^@]+\.[^@]+', text) else 0,
+            'spam_word_ratio': self._calculate_spam_word_ratio(text)
+        }
+        return features
+
+    def _calculate_spam_word_ratio(self, text):
+        """Calculate ratio of potential spam words in text."""
+        spam_indicators = {
+            'free', 'win', 'winner', 'won', 'prize', 'money', 'cash', 'gift', 
+            'click', 'subscribe', 'offer', 'limited', 'hurry', 'discount', 'deal',
+            'guarantee', 'instant', 'now', 'urgent', 'verify', 'verified', 'check',
+            'congratulations', 'selected', 'lottery', 'promotion'
+        }
+        
+        words = set(word.lower() for word in word_tokenize(text))
+        if not words:
+            return 0
+        return len(words.intersection(spam_indicators)) / len(words)
+
+    def load_or_initialize_model(self):
+        """Load existing model or initialize a new one."""
+        model_path = os.path.join(self.model_dir, 'spam_model.joblib')
+        vectorizer_path = os.path.join(self.model_dir, 'vectorizer.joblib')
+        
+        try:
+            self.model = joblib.load(model_path)
+            self.vectorizer = joblib.load(vectorizer_path)
+            print("✅ Loaded existing spam detection model")
+        except FileNotFoundError:
+            print("🆕 Initializing new spam detection model")
+            self.model = RandomForestClassifier(n_estimators=100, random_state=42)
+            self.vectorizer = TfidfVectorizer(max_features=1000)
+
+    def save_model(self, metrics=None):
+        """Save model and update database with version info."""
+        # Save model files
+        model_path = os.path.join(self.model_dir, 'spam_model.joblib')
+        vectorizer_path = os.path.join(self.model_dir, 'vectorizer.joblib')
+        
+        joblib.dump(self.model, model_path)
+        joblib.dump(self.vectorizer, vectorizer_path)
+        
+        # Update database with model version
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        version = datetime.now().strftime('%Y%m%d_%H%M%S')
+        parameters = json.dumps(self.model.get_params())
+        metrics_json = json.dumps(metrics) if metrics else '{}'
+        
+        cursor.execute("""
+            INSERT INTO model_versions (model_type, version, metrics, parameters)
+            VALUES (?, ?, ?, ?)
+        """, ('spam', version, metrics_json, parameters))
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"✅ Saved spam detection model version {version}")
+
+    def predict_spam(self, text):
+        """Predict if text is spam and return probability."""
+        # Extract features
+        features = self.extract_features(text)
+        
+        # Convert text to TF-IDF
+        text_features = self.vectorizer.transform([text]).toarray()
+        
+        # Combine with other features
+        feature_values = np.array(list(features.values())).reshape(1, -1)
+        combined_features = np.hstack((text_features, feature_values))
+        
+        # Make prediction
+        spam_prob = self.model.predict_proba(combined_features)[0][1]
+        is_spam = spam_prob >= 0.7  # Adjustable threshold
+        
+        return {
+            'is_spam': is_spam,
+            'spam_score': float(spam_prob),
+            'spam_features': json.dumps(features)
+        }
+
+    def train(self, retrain=False):
+        """Train the spam detection model using collected data."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Get training data
+        cursor.execute("""
+            SELECT st.text, st.features, st.is_spam, st.confidence
+            FROM spam_training st
+            WHERE st.trained_at > (
+                SELECT COALESCE(MAX(created_at), '1970-01-01')
+                FROM model_versions
+                WHERE model_type = 'spam'
+            )
+            OR ?
+        """, (retrain,))
+        
+        training_data = cursor.fetchall()
+        
+        if not training_data and not retrain:
+            print("No new training data available")
+            return
+        
+        # Prepare features and labels
+        texts = [row[0] for row in training_data]
+        labels = [row[2] for row in training_data]
+        confidences = [row[3] for row in training_data]
+        
+        # Extract text features using TF-IDF
+        if retrain:
+            self.vectorizer = TfidfVectorizer(max_features=1000)
+        text_features = self.vectorizer.fit_transform(texts).toarray()
+        
+        # Extract and combine other features
+        other_features = []
+        for text in texts:
+            features = self.extract_features(text)
+            other_features.append(list(features.values()))
+        
+        # Combine all features
+        X = np.hstack((text_features, np.array(other_features)))
+        y = np.array(labels)
+        
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        
+        # Train model
+        if retrain:
+            self.model = RandomForestClassifier(n_estimators=100, random_state=42)
+        self.model.fit(X_train, y_train)
+        
+        # Evaluate
+        y_pred = self.model.predict(X_test)
+        metrics = classification_report(y_test, y_pred, output_dict=True)
+        
+        # Save model and metrics
+        self.save_model(metrics)
+        
+        conn.close()
+        return metrics
+
+    def mark_as_spam(self, comment_id, is_spam, confidence=1.0):
+        """Mark a comment as spam/not spam for training."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            # Get comment text
+            cursor.execute("SELECT text FROM comments WHERE comment_id = ?", (comment_id,))
+            result = cursor.fetchone()
+            if not result:
+                raise ValueError(f"Comment {comment_id} not found")
+            
+            text = result[0]
+            features = json.dumps(self.extract_features(text))
+            
+            # Add to training data
+            cursor.execute("""
+                INSERT INTO spam_training (comment_id, text, features, is_spam, confidence)
+                VALUES (?, ?, ?, ?, ?)
+            """, (comment_id, text, features, is_spam, confidence))
+            
+            # Update comment status
+            cursor.execute("""
+                UPDATE comments 
+                SET is_spam = ?,
+                    spam_features = ?
+                WHERE comment_id = ?
+            """, (is_spam, features, comment_id))
+            
+            conn.commit()
+            print(f"✅ Marked comment {comment_id} as {'spam' if is_spam else 'not spam'}")
+            
+        except Exception as e:
+            print(f"❌ Error marking comment as spam: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
+
+if __name__ == '__main__':
+    # Example usage
+    detector = SpamDetector()
+    
+    # Train model if needed
+    detector.train()
+    
+    # Test prediction
+    test_comment = "FREE IPHONE! Click here to claim your prize! www.scam.com"
+    result = detector.predict_spam(test_comment)
+    print(f"Spam prediction: {result}")

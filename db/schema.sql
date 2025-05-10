@@ -45,9 +45,34 @@ CREATE TABLE IF NOT EXISTS comments (
     toxicity_score REAL,
     sentiment_scores TEXT,
     toxicity_details TEXT,
+    spam_score REAL DEFAULT 0,
+    is_spam BOOLEAN,
+    spam_features TEXT,  -- JSON field storing extracted features
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (video_id) REFERENCES videos (video_id),
     FOREIGN KEY (parent_id) REFERENCES comments (comment_id)
+);
+
+-- Spam training data table
+CREATE TABLE IF NOT EXISTS spam_training (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    comment_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    features TEXT,  -- JSON field storing extracted features
+    is_spam BOOLEAN NOT NULL,
+    confidence REAL DEFAULT 1.0,
+    trained_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (comment_id) REFERENCES comments (comment_id)
+);
+
+-- Model versions table
+CREATE TABLE IF NOT EXISTS model_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_type TEXT NOT NULL,  -- 'spam', 'toxicity', etc.
+    version TEXT NOT NULL,
+    metrics TEXT,  -- JSON field storing model metrics
+    parameters TEXT,  -- JSON field storing model parameters
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Indices for better query performance
