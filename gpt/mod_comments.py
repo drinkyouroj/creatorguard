@@ -1,112 +1,136 @@
 import os
-import json
 import sqlite3
-import openai
+from openai import OpenAI
 from dotenv import load_dotenv
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
 
-# Configure OpenAI API
-openai.api_key = os.getenv('OPENAI_API_KEY')
-MODEL = os.getenv('OPENAI_MODEL', 'gpt-4-turbo')
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+MODEL = os.getenv('OPENAI_MODEL', 'gpt-3.5-turbo')
 
-def classify_comment(comment_text):
-    """
-    Use GPT to classify a comment's sentiment and suggest moderation action.
-    
-    Args:
-        comment_text (str): The text of the comment to classify
-    
-    Returns:
-        dict: A dictionary with classification details
-    """
-    prompt = f"""Classify the following YouTube comment and provide a detailed analysis:
+class CommentModerator:
+    def __init__(self, db_path='creatorguard.db'):
+        self.conn = sqlite3.connect(db_path)
+        self.cursor = self.conn.cursor()
 
-Comment: "{comment_text}"
-
-Please provide a response with the following JSON structure:
-{{
-    "classification": "supportive|constructive|neutral|critical|toxic",
-    "mod_action": "respond|flag|hide|ignore",
-    "reason": "Explanation of the classification and recommended action",
-    "suggested_reply": "Optional suggested response (if applicable)"
-}}
-
-Your analysis should be nuanced, considering context and tone."""
-
-    try:
-        response = openai.ChatCompletion.create(
-            model=MODEL,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": "You are a helpful AI trained to moderate YouTube comments with empathy and nuance."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3  # Lower temperature for more consistent results
-        )
+    def classify_comments(self, video_id=None, batch_size=10):
+        """
+        Classify unclassified comments using GPT.
         
-        # Parse the GPT response
-        gpt_result = json.loads(response.choices[0].message.content)
-        return gpt_result
-    
-    except Exception as e:
-        print(f"Error classifying comment: {e}")
-        return {
-            "classification": "error",
-            "mod_action": "manual_review",
-            "reason": str(e),
-            "suggested_reply": None
-        }
-
-def process_comments_json(json_file='comments/comments.json', db_path='creatorguard.db'):
-    """
-    Process comments from a JSON file and update the SQLite database with GPT classifications.
-    
-    Args:
-        json_file (str): Path to the JSON file containing comments
-        db_path (str): Path to the SQLite database
-    """
-    # Read comments from JSON
-    with open(json_file, 'r', encoding='utf-8') as f:
-        comments = json.load(f)
-    
-    # Connect to database
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    # Process each comment
-    for comment in comments:
-        # Classify comment with GPT
-        classification = classify_comment(comment['text'])
+        Args:
+            video_id (str, optional): Specific video to analyze
+            batch_size (int): Number of comments to process in each batch
+        """
+        # Get unclassified comments
+        query = """
+            SELECT id, text 
+            FROM comments 
+            WHERE classification IS NULL
+        """
+        params = []
         
-        # Update database with classification
-        try:
-            cursor.execute("""
-                UPDATE comments 
-                SET classification = ?, 
-                    mod_action = ?, 
-                    reason = ?, 
-                    suggested_reply = ?
-                WHERE id = ?
-            """, (
-                classification['classification'],
-                classification['mod_action'],
-                classification['reason'],
-                classification['suggested_reply'],
-                comment['id']
-            ))
-        except sqlite3.Error as e:
-            print(f"Database update error for comment {comment['id']}: {e}")
-    
-    # Commit changes and close connection
-    conn.commit()
-    conn.close()
-    
-    print(f"✅ Processed {len(comments)} comments with GPT moderation.")
+        if video_id:
+            query += " AND video_id = ?"
+            params.append(video_id)
+        
+        self.cursor.execute(query, params)
+        comments = self.cursor.fetchall()
+        
+        if not comments:
+            print("No unclassified comments found.")
+            return
+        
+        print(f" Found {len(comments)} unclassified comments")
+        processed = 0
+        
+        # Process comments in batches
+        for i in range(0, len(comments), batch_size):
+            batch = comments[i:i + batch_size]
+            
+            try:
+                # Prepare batch prompt
+                comments_text = "\n".join([f"Comment {j+1}: {comment[1]}" for j, comment in enumerate(batch)])
+                
+                prompt = f"""Analyze these YouTube comments and classify each one:
+{comments_text}
+
+For each comment, provide:
+1. Classification (positive, negative, neutral, spam, or offensive)
+2. Moderation action (allow, flag, or remove)
+3. Brief reason for classification
+
+Format each response as:
+Comment 1:
+- Classification: [classification]
+- Action: [action]
+- Reason: [brief reason]
+
+Be objective and consistent in your analysis."""
+
+                # Get GPT response
+                response = client.chat.completions.create(
+                    model=MODEL,
+                    messages=[
+                        {"role": "system", "content": "You are an expert content moderator."},
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                
+                analysis = response.choices[0].message.content
+                
+                # Parse and update database
+                current_comment = 0
+                for line in analysis.split('\n'):
+                    if line.startswith('Comment '):
+                        current_comment = int(line.split()[1].strip(':')) - 1
+                    elif line.strip().startswith('- Classification:'):
+                        classification = line.split(':')[1].strip().lower()
+                    elif line.strip().startswith('- Action:'):
+                        action = line.split(':')[1].strip().lower()
+                    elif line.strip().startswith('- Reason:'):
+                        reason = line.split(':')[1].strip()
+                        
+                        # Update database
+                        if current_comment < len(batch):
+                            comment_id = batch[current_comment][0]
+                            self.cursor.execute("""
+                                UPDATE comments 
+                                SET classification = ?, 
+                                    mod_action = ?,
+                                    reason = ?
+                                WHERE id = ?
+                            """, (classification, action, reason, comment_id))
+                            
+                processed += len(batch)
+                print(f" Processed {processed}/{len(comments)} comments")
+                
+                # Commit after each batch
+                self.conn.commit()
+                
+            except Exception as e:
+                print(f"Error processing batch: {e}")
+                continue
+        
+        print("\n Comment classification complete!")
+
+    def close(self):
+        """Close database connection"""
+        self.conn.close()
 
 def main():
-    process_comments_json()
+    try:
+        video_id = input(" Enter YouTube video ID (or press Enter for all videos): ").strip()
+        video_id = video_id if video_id else None
+        
+        moderator = CommentModerator()
+        moderator.classify_comments(video_id)
+        moderator.close()
+        
+    except Exception as e:
+        print(f" Error: {e}")
 
 if __name__ == '__main__':
     main()
