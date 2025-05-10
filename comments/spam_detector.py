@@ -262,15 +262,14 @@ class SpamDetector:
                 
             texts, labels = zip(*data)
             
+            # If model or vectorizer not initialized, return None
+            if not self.model or not self.vectorizer:
+                logger.warning("Model not initialized")
+                return None
+            
             try:
                 # Transform texts using the same vectorizer that trained the model
                 features = self.vectorizer.transform(texts)
-                
-                # If feature dimensions don't match, retrain the model
-                if features.shape[1] != len(self.model.feature_importances_):
-                    logger.warning("Feature mismatch detected, retraining model...")
-                    self.train(retrain=True)
-                    features = self.vectorizer.transform(texts)
                 
                 # Get predictions
                 predictions = self.model.predict(features)
@@ -297,11 +296,14 @@ class SpamDetector:
                 logger.info(f"✅ Calculated metrics: accuracy={metrics['accuracy']:.2f}, precision={metrics['precision']:.2f}")
                 return metrics
                 
-            except Exception as e:
+            except ValueError as e:
                 logger.error(f"❌ Error during prediction: {str(e)}")
-                # If prediction fails, try retraining and calculating metrics again
-                self.train(retrain=True)
-                return self.calculate_metrics()
+                # Only retrain once
+                if "retraining" not in str(e):
+                    logger.warning("Attempting one-time retrain...")
+                    self.train(retrain=True)
+                    return self.calculate_metrics()
+                return None
             
         except Exception as e:
             logger.error(f"❌ Error calculating metrics: {str(e)}")
