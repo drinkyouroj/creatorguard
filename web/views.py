@@ -8,16 +8,10 @@ import json
 from comments.spam_detector import SpamDetector
 from comments.analyze_comments import CommentAnalyzer
 from comments.fetch_comments import YouTubeCommentFetcher
-import logging
+from utils.logger import setup_logger
 
-# Configure root logger
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
-# Get logger for this module
-logger = logging.getLogger(__name__)
+# Set up logger for this module
+logger = setup_logger(__name__)
 
 # Add the project root directory to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
