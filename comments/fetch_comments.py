@@ -32,6 +32,29 @@ class YouTubeCommentFetcher:
         except (ValueError, TypeError):
             return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
+    def fetch_video_metadata(self, video_id):
+        """Fetch video metadata from YouTube API."""
+        try:
+            video_response = self.youtube.videos().list(
+                part='snippet',
+                id=video_id
+            ).execute()
+
+            if not video_response.get('items'):
+                print(f"❌ Video not found: {video_id}")
+                return None
+
+            video = video_response['items'][0]['snippet']
+            return {
+                'video_id': video_id,
+                'title': video.get('title', 'Unknown Title'),
+                'channel_title': video.get('channelTitle', 'Unknown Channel'),
+                'thumbnail_url': video.get('thumbnails', {}).get('default', {}).get('url')
+            }
+        except Exception as e:
+            print(f"❌ Error fetching video metadata: {e}")
+            return None
+
     def fetch_comments(self, video_id, max_results=100):
         """
         Fetch comments for a given YouTube video and insert into database.
@@ -44,7 +67,35 @@ class YouTubeCommentFetcher:
             int: Number of comments inserted
         """
         print(f"🔍 Fetching comments for video ID: {video_id}")
-        print(f"🔑 Using YouTube API Key: {self.youtube_api_key[:5]}...{self.youtube_api_key[-5:]}")
+        
+        # First, fetch and store video metadata
+        video_metadata = self.fetch_video_metadata(video_id)
+        if not video_metadata:
+            print("❌ Could not fetch video metadata")
+            return 0
+
+        # Connect to database
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # Store video metadata
+        try:
+            cursor.execute("""
+                INSERT OR REPLACE INTO videos 
+                (video_id, title, channel_title, thumbnail_url)
+                VALUES (?, ?, ?, ?)
+            """, (
+                video_metadata['video_id'],
+                video_metadata['title'],
+                video_metadata['channel_title'],
+                video_metadata['thumbnail_url']
+            ))
+            conn.commit()
+            print(f"✅ Stored metadata for video: {video_metadata['title']}")
+        except sqlite3.Error as e:
+            print(f"❌ Error storing video metadata: {e}")
+            conn.close()
+            return 0
         
         # Fetch comments from YouTube
         try:
@@ -56,15 +107,12 @@ class YouTubeCommentFetcher:
             ).execute()
         except Exception as e:
             print(f"❌ Error fetching comments from YouTube API: {e}")
+            conn.close()
             return 0
         
         # Print total comments fetched
         total_fetched = len(comments_response.get('items', []))
         print(f"📥 Total comments fetched from YouTube: {total_fetched}")
-        
-        # Connect to database
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
         
         # Counter for inserted comments
         inserted_count = 0
@@ -103,79 +151,51 @@ class YouTubeCommentFetcher:
                 
                 # Fetch and insert replies if they exist
                 if comment_thread['snippet']['totalReplyCount'] > 0:
-                    try:
-                        replies = self.youtube.comments().list(
-                            part='snippet',
-                            parentId=comment_thread['id'],
-                            maxResults=100
-                        ).execute()
+                    replies = self.youtube.comments().list(
+                        part='snippet',
+                        parentId=comment_thread['id'],
+                        maxResults=100  # Adjust as needed
+                    ).execute()
+                    
+                    for reply in replies.get('items', []):
+                        reply_snippet = reply['snippet']
+                        cursor.execute("""
+                            INSERT OR IGNORE INTO comments 
+                            (video_id, comment_id, parent_id, author, text, likes, 
+                             reply_count, timestamp, classification, mod_action, emotional_score)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            video_id,
+                            reply['id'],
+                            comment_thread['id'],
+                            reply_snippet.get('authorDisplayName', 'Unknown'),
+                            reply_snippet.get('textDisplay', ''),
+                            reply_snippet.get('likeCount', 0),
+                            0,  # Replies can't have replies
+                            self.parse_youtube_timestamp(reply_snippet.get('publishedAt')),
+                            None,
+                            None,
+                            None
+                        ))
                         
-                        for reply in replies.get('items', []):
-                            reply_snippet = reply['snippet']
-                            cursor.execute("""
-                                INSERT OR IGNORE INTO comments 
-                                (video_id, comment_id, parent_id, author, text, likes, 
-                                 reply_count, timestamp, classification, mod_action, emotional_score) 
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            """, (
-                                video_id,
-                                reply['id'],
-                                comment_thread['id'],
-                                reply_snippet.get('authorDisplayName', 'Unknown'),
-                                reply_snippet.get('textDisplay', ''),
-                                reply_snippet.get('likeCount', 0),
-                                0,  # replies can't have replies
-                                self.parse_youtube_timestamp(reply_snippet.get('publishedAt')),
-                                None,  # classification
-                                None,  # mod_action
-                                None   # emotional_score
-                            ))
-                            
-                            if cursor.rowcount > 0:
-                                inserted_count += 1
-                            else:
-                                duplicate_count += 1
-                                
-                    except Exception as e:
-                        print(f"⚠️ Error fetching replies: {e}")
-            
-            except sqlite3.IntegrityError as e:
-                print(f"⚠️ Integrity Error: {e}")
+                        if cursor.rowcount > 0:
+                            inserted_count += 1
+                        else:
+                            duplicate_count += 1
+                
+            except sqlite3.Error as e:
+                print(f"❌ Error inserting comment {comment_thread['id']}: {e}")
                 continue
         
         # Commit changes and close connection
         conn.commit()
         conn.close()
         
-        # Detailed output
-        print(f"✅ Inserted {inserted_count} new comments")
-        print(f"🔁 Skipped {duplicate_count} duplicate comments")
-        
-        # Verify inserted comments
-        self.verify_inserted_comments(video_id)
+        print(f"✅ Successfully processed {total_fetched} comments:")
+        print(f"  - {inserted_count} new comments inserted")
+        print(f"  - {duplicate_count} duplicate comments skipped")
         
         return inserted_count
-
-    def verify_inserted_comments(self, video_id):
-        """Verify that comments were properly inserted for a video."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT COUNT(*) FROM comments WHERE video_id = ?", (video_id,))
-        count = cursor.fetchone()[0]
-        
-        print(f"\n🔍 Verification for video {video_id}:")
-        print(f"💬 Total comments in database for this video: {count}")
-        
-        if count == 0:
-            print("❌ No comments found in database for this video!")
-            print("Possible reasons:")
-            print("1. Video ID might be incorrect")
-            print("2. Comments might be disabled")
-            print("3. YouTube API might have restrictions")
-        
-        conn.close()
-        return count
 
 def main():
     """Main function for testing."""

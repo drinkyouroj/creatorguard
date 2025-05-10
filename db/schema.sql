@@ -19,6 +19,15 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
     FOREIGN KEY (user_id) REFERENCES users (id)
 );
 
+-- Videos table
+CREATE TABLE IF NOT EXISTS videos (
+    video_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    channel_title TEXT,
+    thumbnail_url TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Comments table
 CREATE TABLE IF NOT EXISTS comments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,6 +46,7 @@ CREATE TABLE IF NOT EXISTS comments (
     sentiment_scores TEXT,
     toxicity_details TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (video_id) REFERENCES videos (video_id),
     FOREIGN KEY (parent_id) REFERENCES comments (comment_id)
 );
 

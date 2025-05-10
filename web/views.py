@@ -63,27 +63,35 @@ def list_videos():
         conn = sqlite3.connect('creatorguard.db')
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT DISTINCT video_id, 
-                   COUNT(*) as comment_count,
-                   MIN(timestamp) as first_comment,
-                   MAX(timestamp) as last_comment,
-                   COUNT(CASE WHEN classification = 'toxic' THEN 1 END) as toxic_count,
-                   COUNT(CASE WHEN classification = 'questionable' THEN 1 END) as questionable_count,
-                   COUNT(CASE WHEN mod_action IS NOT NULL THEN 1 END) as flagged_count
-            FROM comments 
-            GROUP BY video_id
+            SELECT 
+                v.video_id,
+                v.title,
+                v.channel_title,
+                v.thumbnail_url,
+                COUNT(c.id) as comment_count,
+                MIN(c.timestamp) as first_comment,
+                MAX(c.timestamp) as last_comment,
+                COUNT(CASE WHEN c.classification = 'toxic' THEN 1 END) as toxic_count,
+                COUNT(CASE WHEN c.classification = 'questionable' THEN 1 END) as questionable_count,
+                COUNT(CASE WHEN c.mod_action IS NOT NULL THEN 1 END) as flagged_count
+            FROM videos v
+            LEFT JOIN comments c ON v.video_id = c.video_id
+            GROUP BY v.video_id, v.title, v.channel_title, v.thumbnail_url
             ORDER BY last_comment DESC
         """)
         videos = cursor.fetchall()
         
         return jsonify([{
             'video_id': video[0],
-            'comment_count': video[1],
-            'first_comment': video[2],
-            'last_comment': video[3],
-            'toxic_count': video[4],
-            'questionable_count': video[5],
-            'flagged_count': video[6]
+            'title': video[1],
+            'channel_title': video[2],
+            'thumbnail_url': video[3],
+            'comment_count': video[4],
+            'first_comment': video[5],
+            'last_comment': video[6],
+            'toxic_count': video[7],
+            'questionable_count': video[8],
+            'flagged_count': video[9]
         } for video in videos])
         
     except sqlite3.Error as e:
