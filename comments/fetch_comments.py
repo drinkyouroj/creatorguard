@@ -2,6 +2,7 @@ import os
 import sqlite3
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
+from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -22,6 +23,14 @@ class YouTubeCommentFetcher:
         
         # Build YouTube API client
         self.youtube = build('youtube', 'v3', developerKey=self.youtube_api_key)
+
+    def parse_youtube_timestamp(self, timestamp_str):
+        """Convert YouTube timestamp to SQLite timestamp."""
+        try:
+            dt = datetime.strptime(timestamp_str, "%Y-%m-%dT%H:%M:%SZ")
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except (ValueError, TypeError):
+            return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
     def fetch_comments(self, video_id, max_results=100):
         """
@@ -69,14 +78,21 @@ class YouTubeCommentFetcher:
                 # Insert comment, ignoring duplicates
                 cursor.execute("""
                     INSERT OR IGNORE INTO comments 
-                    (id, video_id, author, text, timestamp) 
-                    VALUES (?, ?, ?, ?, ?)
+                    (video_id, comment_id, parent_id, author, text, likes, 
+                     reply_count, timestamp, classification, mod_action, emotional_score) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    comment_thread['id'],
                     video_id,
+                    comment_thread['id'],
+                    None,  # parent_id is None for top-level comments
                     comment.get('authorDisplayName', 'Unknown'),
                     comment.get('textDisplay', ''),
-                    comment.get('publishedAt', '')
+                    comment.get('likeCount', 0),
+                    comment_thread['snippet'].get('totalReplyCount', 0),
+                    self.parse_youtube_timestamp(comment.get('publishedAt')),
+                    None,  # classification will be set by analysis
+                    None,  # mod_action will be set by moderators
+                    None   # emotional_score will be set by analysis
                 ))
                 
                 # Track inserted vs duplicate comments
@@ -84,6 +100,44 @@ class YouTubeCommentFetcher:
                     inserted_count += 1
                 else:
                     duplicate_count += 1
+                
+                # Fetch and insert replies if they exist
+                if comment_thread['snippet']['totalReplyCount'] > 0:
+                    try:
+                        replies = self.youtube.comments().list(
+                            part='snippet',
+                            parentId=comment_thread['id'],
+                            maxResults=100
+                        ).execute()
+                        
+                        for reply in replies.get('items', []):
+                            reply_snippet = reply['snippet']
+                            cursor.execute("""
+                                INSERT OR IGNORE INTO comments 
+                                (video_id, comment_id, parent_id, author, text, likes, 
+                                 reply_count, timestamp, classification, mod_action, emotional_score) 
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                video_id,
+                                reply['id'],
+                                comment_thread['id'],
+                                reply_snippet.get('authorDisplayName', 'Unknown'),
+                                reply_snippet.get('textDisplay', ''),
+                                reply_snippet.get('likeCount', 0),
+                                0,  # replies can't have replies
+                                self.parse_youtube_timestamp(reply_snippet.get('publishedAt')),
+                                None,  # classification
+                                None,  # mod_action
+                                None   # emotional_score
+                            ))
+                            
+                            if cursor.rowcount > 0:
+                                inserted_count += 1
+                            else:
+                                duplicate_count += 1
+                                
+                    except Exception as e:
+                        print(f"⚠️ Error fetching replies: {e}")
             
             except sqlite3.IntegrityError as e:
                 print(f"⚠️ Integrity Error: {e}")
@@ -103,22 +157,17 @@ class YouTubeCommentFetcher:
         return inserted_count
 
     def verify_inserted_comments(self, video_id):
-        """
-        Verify comments were inserted for the specific video ID.
-        
-        Args:
-            video_id (str): YouTube video ID to verify
-        """
+        """Verify that comments were properly inserted for a video."""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
         cursor.execute("SELECT COUNT(*) FROM comments WHERE video_id = ?", (video_id,))
-        video_comment_count = cursor.fetchone()[0]
+        count = cursor.fetchone()[0]
         
         print(f"\n🔍 Verification for video {video_id}:")
-        print(f"💬 Total comments in database for this video: {video_comment_count}")
+        print(f"💬 Total comments in database for this video: {count}")
         
-        if video_comment_count == 0:
+        if count == 0:
             print("❌ No comments found in database for this video!")
             print("Possible reasons:")
             print("1. Video ID might be incorrect")
@@ -126,18 +175,13 @@ class YouTubeCommentFetcher:
             print("3. YouTube API might have restrictions")
         
         conn.close()
+        return count
 
 def main():
-    # Prompt for video ID
-    video_id = input("🎥 Enter YouTube video ID: ").strip()
-    
-    try:
-        # Create fetcher and fetch comments
-        fetcher = YouTubeCommentFetcher()
-        fetcher.fetch_comments(video_id)
-    
-    except Exception as e:
-        print(f"❌ Error fetching comments: {e}")
+    """Main function for testing."""
+    fetcher = YouTubeCommentFetcher()
+    video_id = input("Enter YouTube video ID: ")
+    fetcher.fetch_comments(video_id)
 
 if __name__ == '__main__':
     main()
