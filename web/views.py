@@ -5,12 +5,16 @@ import sqlite3
 import os
 import sys
 import json
+from comments.spam_detector import SpamDetector
+from comments.analyze_comments import CommentAnalyzer
+from comments.fetch_comments import YouTubeCommentFetcher
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 # Add the project root directory to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from comments.fetch_comments import YouTubeCommentFetcher
-from comments.analyze_comments import CommentAnalyzer
 from gpt.comment_insights import CommentAnalyzer as InsightAnalyzer
 
 bp = Blueprint('views', __name__)
@@ -96,6 +100,7 @@ def list_videos():
         } for video in videos])
         
     except Exception as e:
+        logger.error(f"Failed to list videos: {str(e)}")
         return jsonify({'error': str(e)}), 500
     finally:
         conn.close()
@@ -137,6 +142,7 @@ def get_video_comments(video_id):
         } for comment in comments])
         
     except Exception as e:
+        logger.error(f"Failed to get video comments: {str(e)}")
         return jsonify({'error': str(e)}), 500
     finally:
         conn.close()
@@ -150,6 +156,7 @@ def get_insights(video_id):
         stats = analyzer.get_analysis_summary(video_id)
         return jsonify(stats)
     except Exception as e:
+        logger.error(f"Failed to get insights: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/api/comments/<video_id>')
@@ -196,6 +203,7 @@ def get_comments(video_id):
         })
         
     except sqlite3.Error as e:
+        logger.error(f"Failed to get comments: {str(e)}")
         return jsonify({'error': str(e)}), 500
     finally:
         conn.close()
@@ -224,6 +232,7 @@ def import_video():
             'analysis': analysis
         })
     except Exception as e:
+        logger.error(f"Failed to import video: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/api/comments/<comment_id>/mark_spam', methods=['POST'])
@@ -244,6 +253,7 @@ def mark_comment_spam(comment_id):
         return jsonify(result)
         
     except Exception as e:
+        logger.error(f"Failed to mark comment as spam: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/api/comments/mark_spam_bulk', methods=['POST'])
@@ -267,6 +277,7 @@ def mark_comments_spam_bulk():
         return jsonify(result)
         
     except Exception as e:
+        logger.error(f"Failed to mark comments as spam: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/api/metrics/spam', methods=['GET'])
@@ -298,5 +309,5 @@ def get_spam_metrics():
         })
         
     except Exception as e:
-        log_error(None, e, "Failed to get spam metrics")
+        logger.error(f"Failed to get spam metrics: {str(e)}")
         return jsonify({'error': str(e)}), 500

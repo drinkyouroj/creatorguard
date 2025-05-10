@@ -64,3 +64,22 @@ def log_info(logger, message):
     """Log an info message."""
     logger.info(message)
     return message
+
+def log_error_new(logger=None, error=None, message="An error occurred"):
+    """Log an error with stack trace."""
+    if logger is None:
+        logger = logging.getLogger('creatorguard')
+    
+    error_msg = f"{message}: {str(error)}" if error else message
+    logger.error(error_msg)
+    
+    if error:
+        logger.error("Stack trace:")
+        logger.error(traceback.format_exc())
+
+def log_info_new(logger=None, message=""):
+    """Log an informational message."""
+    if logger is None:
+        logger = logging.getLogger('creatorguard')
+    
+    logger.info(message)
