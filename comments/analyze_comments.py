@@ -43,8 +43,8 @@ class CommentAnalyzer:
             
             # Get toxicity scores
             try:
-                toxicity_scores = self.toxicity(text)[0]
-                toxicity_level = max(toxicity_scores, key=lambda x: x['score'])
+                toxicity_scores = self.toxicity(text)  # This returns a list of dictionaries
+                toxicity_level = max(toxicity_scores[0], key=lambda x: x['score'])  # Get highest score from first result
             except Exception as e:
                 print(f"⚠️ Error in toxicity analysis: {e}")
                 toxicity_level = {'label': 'unknown', 'score': 0.0}
@@ -84,12 +84,9 @@ class CommentAnalyzer:
 
     def _get_classification(self, sentiment_score, toxicity_result):
         """Determine comment classification based on sentiment and toxicity."""
-        toxicity_score = next((item['score'] for item in toxicity_result 
-                             if item['label'] == 'toxic'), 0)
-        
-        if toxicity_score > 0.7:
+        if toxicity_result['label'] == 'toxic' and toxicity_result['score'] > 0.7:
             return 'toxic'
-        elif toxicity_score > 0.4:
+        elif toxicity_result['label'] == 'toxic' and toxicity_result['score'] > 0.4:
             return 'questionable'
         elif sentiment_score >= 0.3:
             return 'positive'
@@ -100,14 +97,11 @@ class CommentAnalyzer:
 
     def _get_mod_action(self, classification, toxicity_result):
         """Determine moderation action based on classification."""
-        toxicity_score = next((item['score'] for item in toxicity_result 
-                             if item['label'] == 'toxic'), 0)
-        
         if classification == 'toxic':
             return 'hide'
         elif classification == 'questionable':
             return 'flag'
-        elif toxicity_score > 0.3:
+        elif toxicity_result['score'] > 0.3:
             return 'review'
         else:
             return None
