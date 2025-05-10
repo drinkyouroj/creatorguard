@@ -10,7 +10,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import joblib
 import re
 from collections import Counter
-from utils.logger import log_error, log_info
+from utils.logger import setup_logger
 import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
@@ -19,6 +19,9 @@ from nltk.tokenize import word_tokenize
 nltk.download('punkt')
 nltk.download('stopwords')
 nltk.download('averaged_perceptron_tagger')
+
+# Set up logger for this module
+logger = setup_logger(__name__)
 
 class SpamDetector:
     def __init__(self, db_path='creatorguard.db'):
@@ -75,9 +78,9 @@ class SpamDetector:
         try:
             self.model = joblib.load(model_path)
             self.vectorizer = joblib.load(vectorizer_path)
-            log_info("✅ Loaded existing spam detection model")
+            logger.info("✅ Loaded existing spam detection model")
         except FileNotFoundError:
-            log_info("🆕 Initializing new spam detection model")
+            logger.info("🆕 Initializing new spam detection model")
             self.model = RandomForestClassifier(n_estimators=100, random_state=42)
             self.vectorizer = TfidfVectorizer(max_features=1000)
 
@@ -107,7 +110,7 @@ class SpamDetector:
         conn.commit()
         conn.close()
         
-        log_info(f"✅ Saved spam detection model version {version}")
+        logger.info(f"✅ Saved spam detection model version {version}")
 
     def predict_spam(self, text):
         """Predict if text is spam and return probability."""
@@ -151,7 +154,7 @@ class SpamDetector:
         training_data = cursor.fetchall()
         
         if not training_data and not retrain:
-            log_info("No new training data available")
+            logger.info("No new training data available")
             return
         
         # Prepare features and labels
@@ -194,10 +197,10 @@ class SpamDetector:
 
     def mark_as_spam(self, comment_id, is_spam, confidence=1.0):
         """Mark a comment as spam/not spam for training."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
         try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
             # Get comment text
             cursor.execute("SELECT text FROM comments WHERE comment_id = ?", (comment_id,))
             result = cursor.fetchone()
@@ -222,10 +225,10 @@ class SpamDetector:
             """, (is_spam, features, comment_id))
             
             conn.commit()
-            log_info(f"✅ Marked comment {comment_id} as {'spam' if is_spam else 'not spam'}")
+            logger.info(f"✅ Marked comment {comment_id} as {'spam' if is_spam else 'not spam'}")
             
         except Exception as e:
-            log_error(f"❌ Error marking comment as spam: {e}")
+            logger.error(f"❌ Error marking comment as spam: {e}")
             conn.rollback()
         finally:
             conn.close()
@@ -277,7 +280,7 @@ class SpamDetector:
             return metrics
             
         except Exception as e:
-            log_error(f"❌ Error calculating metrics: {e}")
+            logger.error(f"❌ Error calculating metrics: {e}")
             return None
         finally:
             conn.close()
@@ -305,7 +308,7 @@ class SpamDetector:
             ]
             
         except Exception as e:
-            log_error(f"❌ Error getting metrics history: {e}")
+            logger.error(f"❌ Error getting metrics history: {e}")
             return []
         finally:
             conn.close()
@@ -338,7 +341,7 @@ class SpamDetector:
             ]
             
         except Exception as e:
-            log_error(f"❌ Error getting spam trends: {e}")
+            logger.error(f"❌ Error getting spam trends: {e}")
             return []
         finally:
             conn.close()
@@ -353,4 +356,4 @@ if __name__ == '__main__':
     # Test prediction
     test_comment = "FREE IPHONE! Click here to claim your prize! www.scam.com"
     result = detector.predict_spam(test_comment)
-    log_info(f"Spam prediction: {result}")
+    logger.info(f"Spam prediction: {result}")

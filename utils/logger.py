@@ -85,4 +85,3 @@ def log_info(logger=None, message=""):
         logger = logging.getLogger('creatorguard')
     
     logger.info(message)
-    return message
