@@ -5,6 +5,7 @@ env/
 
 # SQLite database
 *.db
+*.db.backup
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -40,3 +41,7 @@ build/
 # Personal data and notes (optional)
 personal_notes/
 private_data/
+
+# Insights and comment analysis
+insights/comment_insights*.md
+comments/comments.json
