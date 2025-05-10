@@ -12,7 +12,14 @@ def create_app():
     
     # Initialize Flask-Login
     login_manager.init_app(app)
-    login_manager.login_view = 'login'
+    login_manager.login_view = 'auth.login'
+    
+    # Import User model and set up user_loader
+    from .auth import User
+    
+    @login_manager.user_loader
+    def load_user(user_id):
+        return User.get(user_id)
     
     # Import and register blueprints
     from . import auth

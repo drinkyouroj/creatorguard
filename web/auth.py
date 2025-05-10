@@ -331,8 +331,3 @@ def update_user_status(user_id, is_active, is_admin=None):
     conn.commit()
     conn.close()
     return True
-
-@login_manager.user_loader
-def load_user(user_id):
-    """Load user by ID."""
-    return User.get(user_id)
