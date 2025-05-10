@@ -4,32 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CreatorGuard Dashboard</title>
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- Custom CSS -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
 <body class="bg-gray-100">
-    <!-- Navigation -->
     <nav class="bg-white shadow-lg">
         <div class="max-w-7xl mx-auto px-4">
             <div class="flex justify-between h-16">
                 <div class="flex">
                     <div class="flex-shrink-0 flex items-center">
-                        <h1 class="text-xl font-bold text-gray-800">CreatorGuard</h1>
+                        <span class="text-xl font-bold">CreatorGuard</span>
                     </div>
                 </div>
-                <div class="flex items-center">
+                <div class="flex items-center space-x-4">
                     {% if current_user.is_admin %}
-                    <a href="{{ url_for('views.admin_dashboard') }}" 
+                    <a href="{{ url_for('views.admin_dashboard') }}"
                        class="px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
-                        Admin Dashboard
+                        Admin
                     </a>
                     {% endif %}
-                    <a href="{{ url_for('auth.logout') }}" 
-                       class="ml-4 px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
+                    <a href="{{ url_for('auth.logout') }}"
+                       class="px-3 py-2 rounded-md text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
                         Logout
                     </a>
                 </div>
@@ -37,117 +33,226 @@
         </div>
     </nav>
 
-    <!-- Main Content -->
-    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <!-- Video Import and Selection -->
-        <div class="bg-white rounded-lg shadow p-6 mb-6">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Video Import -->
-                <div>
-                    <h2 class="text-lg font-semibold mb-4">Import New Video</h2>
-                    <form id="importForm" class="flex gap-4">
-                        <input type="text" id="newVideoId" placeholder="Enter YouTube Video ID" 
-                               class="flex-1 p-2 border rounded focus:ring-indigo-500 focus:border-indigo-500">
-                        <button type="submit" 
-                                class="px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
-                            Import
+    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8" id="app">
+        <div class="bg-white shadow rounded-lg mb-6">
+            <div class="px-4 py-5 sm:p-6">
+                <h3 class="text-lg font-medium text-gray-900">Import YouTube Video</h3>
+                <div class="mt-4">
+                    <form @submit.prevent="importVideo" class="flex gap-4">
+                        <div class="flex-grow">
+                            <input type="text" v-model="newVideoId" placeholder="Enter YouTube Video ID"
+                                   class="block w-full border border-gray-300 rounded-md shadow-sm px-3 py-2">
+                        </div>
+                        <button type="submit"
+                                :disabled="importing"
+                                :class="{'opacity-50 cursor-not-allowed': importing}"
+                                class="bg-blue-600 text-white px-4 py-2 rounded-md text-sm hover:bg-blue-700">
+                            [[ importing ? 'Importing...' : 'Import Video' ]]
                         </button>
                     </form>
-                    <p id="importStatus" class="mt-2 text-sm text-gray-500"></p>
-                </div>
-                <!-- Video Selection -->
-                <div>
-                    <h2 class="text-lg font-semibold mb-4">Select Video</h2>
-                    <select id="videoSelect" class="w-full p-2 border rounded">
-                        <option value="">Loading videos...</option>
-                    </select>
+                    <p v-if="importError" class="mt-2 text-sm text-red-600">[[ importError ]]</p>
                 </div>
             </div>
         </div>
 
-        <!-- Stats Grid -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="text-sm font-medium text-gray-500">Total Comments</h3>
-                <p id="totalComments" class="mt-2 text-3xl font-semibold text-gray-900">-</p>
-            </div>
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="text-sm font-medium text-gray-500">Unique Authors</h3>
-                <p id="uniqueAuthors" class="mt-2 text-3xl font-semibold text-gray-900">-</p>
-            </div>
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="text-sm font-medium text-gray-500">Response Rate</h3>
-                <p id="responseRate" class="mt-2 text-3xl font-semibold text-gray-900">-</p>
-            </div>
-            <div class="bg-white rounded-lg shadow p-6">
-                <h3 class="text-sm font-medium text-gray-500">Avg Words/Comment</h3>
-                <p id="avgWords" class="mt-2 text-3xl font-semibold text-gray-900">-</p>
-            </div>
-        </div>
-
-        <!-- Charts Grid -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            <!-- Classification Chart -->
-            <div class="bg-white rounded-lg shadow p-6">
-                <h2 class="text-lg font-semibold mb-4">Comment Classifications</h2>
-                <canvas id="classificationChart"></canvas>
-            </div>
-            <!-- Moderation Actions Chart -->
-            <div class="bg-white rounded-lg shadow p-6">
-                <h2 class="text-lg font-semibold mb-4">Moderation Actions</h2>
-                <canvas id="moderationChart"></canvas>
-            </div>
-        </div>
-
-        <!-- Keywords and Time Analysis -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            <!-- Top Keywords -->
-            <div class="bg-white rounded-lg shadow p-6">
-                <h2 class="text-lg font-semibold mb-4">Top Keywords</h2>
-                <div id="keywordCloud" class="h-64"></div>
-            </div>
-            <!-- Time Analysis -->
-            <div class="bg-white rounded-lg shadow p-6">
-                <h2 class="text-lg font-semibold mb-4">Comment Timeline</h2>
-                <canvas id="timelineChart"></canvas>
+        <div class="bg-white shadow rounded-lg">
+            <div class="px-4 py-5 sm:p-6">
+                <h3 class="text-lg font-medium text-gray-900">Your Videos</h3>
+                <div v-if="loading" class="mt-4 text-center">
+                    <p class="text-gray-500">Loading videos...</p>
+                </div>
+                <div v-else-if="videos.length === 0" class="mt-4 text-center">
+                    <p class="text-gray-500">No videos imported yet. Import your first video above.</p>
+                </div>
+                <div v-else class="mt-4">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead>
+                                <tr>
+                                    <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Video ID</th>
+                                    <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Comments</th>
+                                    <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">First Comment</th>
+                                    <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Comment</th>
+                                    <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <tr v-for="video in videos" :key="video.video_id">
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                        <a :href="'https://youtube.com/watch?v=' + video.video_id" target="_blank" class="hover:text-blue-600">
+                                            [[ video.video_id ]]
+                                        </a>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">[[ video.comment_count ]]</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">[[ formatDate(video.first_comment) ]]</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">[[ formatDate(video.last_comment) ]]</td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <button @click="viewInsights(video.video_id)"
+                                                class="text-blue-600 hover:text-blue-900">
+                                            View Insights
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- Comments Table -->
-        <div class="bg-white rounded-lg shadow overflow-hidden">
-            <div class="px-6 py-4 border-b">
-                <h2 class="text-lg font-semibold">Recent Comments</h2>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Author</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Comment</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Classification</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                        </tr>
-                    </thead>
-                    <tbody id="commentsTable" class="bg-white divide-y divide-gray-200">
-                        <tr>
-                            <td colspan="5" class="px-6 py-4 text-center text-gray-500">Select a video to view comments</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <!-- Pagination -->
-            <div class="px-6 py-4 border-t">
-                <div class="flex justify-between items-center">
-                    <button id="prevPage" class="px-4 py-2 border rounded text-sm font-medium text-gray-700 disabled:opacity-50">Previous</button>
-                    <span id="pageInfo" class="text-sm text-gray-500">Page 1 of 1</span>
-                    <button id="nextPage" class="px-4 py-2 border rounded text-sm font-medium text-gray-700 disabled:opacity-50">Next</button>
+        <!-- Insights Modal -->
+        <div v-if="showInsights" class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center">
+            <div class="bg-white rounded-lg max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="px-4 py-5 sm:p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-medium text-gray-900">Video Insights</h3>
+                        <button @click="closeInsights" class="text-gray-400 hover:text-gray-500">
+                            <span class="sr-only">Close</span>
+                            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div v-if="loadingInsights" class="text-center py-4">
+                        <p class="text-gray-500">Loading insights...</p>
+                    </div>
+                    <div v-else>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                            <div class="bg-gray-50 rounded-lg p-4">
+                                <h4 class="text-sm font-medium text-gray-900 mb-2">Comment Classifications</h4>
+                                <ul class="space-y-2">
+                                    <li v-for="(count, type) in insights.classifications" :key="type"
+                                        class="flex justify-between">
+                                        <span class="text-sm text-gray-600">[[ type ]]</span>
+                                        <span class="text-sm font-medium text-gray-900">[[ count ]]</span>
+                                    </li>
+                                </ul>
+                            </div>
+                            <div class="bg-gray-50 rounded-lg p-4">
+                                <h4 class="text-sm font-medium text-gray-900 mb-2">Moderation Actions</h4>
+                                <ul class="space-y-2">
+                                    <li v-for="(count, action) in insights.mod_actions" :key="action"
+                                        class="flex justify-between">
+                                        <span class="text-sm text-gray-600">[[ action ]]</span>
+                                        <span class="text-sm font-medium text-gray-900">[[ count ]]</span>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <h4 class="text-sm font-medium text-gray-900 mb-2">Recent Comments</h4>
+                        <div class="space-y-4">
+                            <div v-for="comment in insights.comments" :key="comment.id"
+                                 class="bg-gray-50 rounded-lg p-4">
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-sm font-medium text-gray-900">[[ comment.author ]]</span>
+                                    <span class="text-xs text-gray-500">[[ formatDate(comment.timestamp) ]]</span>
+                                </div>
+                                <p class="text-sm text-gray-600">[[ comment.text ]]</p>
+                                <div class="mt-2 flex gap-2">
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+                                          :class="{
+                                              'bg-green-100 text-green-800': comment.classification === 'positive',
+                                              'bg-yellow-100 text-yellow-800': comment.classification === 'neutral',
+                                              'bg-red-100 text-red-800': comment.classification === 'negative'
+                                          }">
+                                        [[ comment.classification ]]
+                                    </span>
+                                    <span v-if="comment.mod_action" 
+                                          class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                        [[ comment.mod_action ]]
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </main>
 
-    <!-- Custom JavaScript -->
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+    <script>
+        const { createApp } = Vue
+
+        createApp({
+            delimiters: ['[[', ']]'],
+            data() {
+                return {
+                    videos: [],
+                    loading: true,
+                    importing: false,
+                    newVideoId: '',
+                    importError: '',
+                    showInsights: false,
+                    loadingInsights: false,
+                    insights: null
+                }
+            },
+            mounted() {
+                this.fetchVideos()
+            },
+            methods: {
+                async fetchVideos() {
+                    try {
+                        this.loading = true
+                        const response = await axios.get('/api/videos')
+                        this.videos = response.data
+                    } catch (error) {
+                        console.error('Error fetching videos:', error)
+                    } finally {
+                        this.loading = false
+                    }
+                },
+                async importVideo() {
+                    if (!this.newVideoId) return
+                    
+                    try {
+                        this.importing = true
+                        this.importError = ''
+                        
+                        const formData = new FormData()
+                        formData.append('video_id', this.newVideoId)
+                        
+                        await axios.post('/api/videos/import', formData)
+                        this.newVideoId = ''
+                        await this.fetchVideos()
+                    } catch (error) {
+                        console.error('Error importing video:', error)
+                        this.importError = error.response?.data?.error || 'Failed to import video'
+                    } finally {
+                        this.importing = false
+                    }
+                },
+                async viewInsights(videoId) {
+                    try {
+                        this.showInsights = true
+                        this.loadingInsights = true
+                        
+                        const [insightsResponse, commentsResponse] = await Promise.all([
+                            axios.get(`/api/insights/${videoId}`),
+                            axios.get(`/api/comments/${videoId}`)
+                        ])
+                        
+                        this.insights = {
+                            ...insightsResponse.data,
+                            comments: commentsResponse.data.comments
+                        }
+                    } catch (error) {
+                        console.error('Error loading insights:', error)
+                    } finally {
+                        this.loadingInsights = false
+                    }
+                },
+                closeInsights() {
+                    this.showInsights = false
+                    this.insights = null
+                },
+                formatDate(timestamp) {
+                    if (!timestamp) return ''
+                    return new Date(timestamp).toLocaleString()
+                }
+            }
+        }).mount('#app')
+    </script>
 </body>
 </html>

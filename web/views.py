@@ -1,6 +1,15 @@
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for
 from flask_login import login_required, current_user
 from .auth import admin_required, User, update_user_status, get_pending_users, get_all_users
+import sqlite3
+import os
+import sys
+
+# Add the project root directory to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from comments.fetch_comments import YouTubeCommentFetcher
+from gpt.comment_insights import CommentAnalyzer
 
 bp = Blueprint('views', __name__)
 
@@ -49,42 +58,106 @@ def toggle_user_status(user_id):
 @bp.route('/api/videos/import', methods=['POST'])
 @login_required
 def import_video():
-    """Import comments from a YouTube video."""
+    """Import comments from a new YouTube video."""
     video_id = request.form.get('video_id')
     if not video_id:
-        return jsonify({'success': False, 'error': 'No video ID provided'})
-        
+        return jsonify({'error': 'Video ID is required'}), 400
+    
     try:
-        # Import video logic here
+        fetcher = YouTubeCommentFetcher()
+        comment_count = fetcher.fetch_comments(video_id)
         return jsonify({
             'success': True,
-            'message': f'Successfully imported comments for video {video_id}'
+            'message': f'Successfully imported {comment_count} comments',
+            'video_id': video_id
         })
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        return jsonify({'error': str(e)}), 500
 
 @bp.route('/api/videos')
 @login_required
 def list_videos():
-    """List all imported videos."""
-    # Video listing logic here
-    return jsonify([])
+    """Get list of videos with comments."""
+    try:
+        conn = sqlite3.connect('creatorguard.db')
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT video_id, 
+                   COUNT(*) as comment_count,
+                   MIN(timestamp) as first_comment,
+                   MAX(timestamp) as last_comment
+            FROM comments 
+            GROUP BY video_id
+            ORDER BY last_comment DESC
+        """)
+        videos = cursor.fetchall()
+        
+        return jsonify([{
+            'video_id': video[0],
+            'comment_count': video[1],
+            'first_comment': video[2],
+            'last_comment': video[3]
+        } for video in videos])
+        
+    except sqlite3.Error as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
 
 @bp.route('/api/insights/<video_id>')
 @login_required
 def get_insights(video_id):
     """Get insights for a specific video."""
-    # Insights logic here
-    return jsonify({})
+    try:
+        analyzer = CommentAnalyzer()
+        stats = analyzer.get_comment_stats(video_id)
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @bp.route('/api/comments/<video_id>')
 @login_required
 def get_comments(video_id):
-    """Get comments for a specific video."""
-    page = request.args.get('page', 1, type=int)
-    # Comments logic here
-    return jsonify({
-        'comments': [],
-        'page': page,
-        'total_pages': 1
-    })
+    """Get paginated comments for a video."""
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('per_page', 50))
+    offset = (page - 1) * per_page
+    
+    try:
+        conn = sqlite3.connect('creatorguard.db')
+        cursor = conn.cursor()
+        
+        # Get total count
+        cursor.execute("SELECT COUNT(*) FROM comments WHERE video_id = ?", (video_id,))
+        total = cursor.fetchone()[0]
+        
+        # Get paginated comments
+        cursor.execute("""
+            SELECT id, author, text, timestamp, classification, mod_action
+            FROM comments 
+            WHERE video_id = ?
+            ORDER BY timestamp DESC
+            LIMIT ? OFFSET ?
+        """, (video_id, per_page, offset))
+        
+        comments = [{
+            'id': row[0],
+            'author': row[1],
+            'text': row[2],
+            'timestamp': row[3],
+            'classification': row[4],
+            'mod_action': row[5]
+        } for row in cursor.fetchall()]
+        
+        return jsonify({
+            'comments': comments,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': (total + per_page - 1) // per_page
+        })
+        
+    except sqlite3.Error as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
