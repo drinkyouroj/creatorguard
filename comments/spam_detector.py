@@ -250,37 +250,54 @@ class SpamDetector:
             
             data = cursor.fetchall()
             if not data:
+                logger.warning("No labeled data available for metrics calculation")
                 return None
                 
             texts, labels = zip(*data)
             
-            # Get predictions
-            features = self.vectorizer.transform(texts)
-            predictions = self.model.predict(features)
-            
-            # Calculate metrics
-            metrics = {
-                'accuracy': float(accuracy_score(labels, predictions)),
-                'precision': float(precision_score(labels, predictions)),
-                'recall': float(recall_score(labels, predictions)),
-                'f1': float(f1_score(labels, predictions)),
-                'total_samples': len(labels),
-                'spam_ratio': sum(labels) / len(labels),
-                'timestamp': datetime.utcnow().isoformat()
-            }
-            
-            # Save metrics
-            cursor.execute("""
-                INSERT INTO model_metrics (
-                    model_type, metrics, created_at
-                ) VALUES (?, ?, ?)
-            """, ('spam', json.dumps(metrics), metrics['timestamp']))
-            
-            conn.commit()
-            return metrics
+            try:
+                # Transform texts using the same vectorizer that trained the model
+                features = self.vectorizer.transform(texts)
+                
+                # If feature dimensions don't match, retrain the model
+                if features.shape[1] != len(self.model.feature_importances_):
+                    logger.warning("Feature mismatch detected, retraining model...")
+                    self.train(retrain=True)
+                    features = self.vectorizer.transform(texts)
+                
+                # Get predictions
+                predictions = self.model.predict(features)
+                
+                # Calculate metrics
+                metrics = {
+                    'accuracy': float(accuracy_score(labels, predictions)),
+                    'precision': float(precision_score(labels, predictions)),
+                    'recall': float(recall_score(labels, predictions)),
+                    'f1': float(f1_score(labels, predictions)),
+                    'total_samples': len(labels),
+                    'spam_ratio': sum(labels) / len(labels),
+                    'timestamp': datetime.utcnow().isoformat()
+                }
+                
+                # Save metrics
+                cursor.execute("""
+                    INSERT INTO model_metrics (
+                        model_type, metrics, created_at
+                    ) VALUES (?, ?, ?)
+                """, ('spam', json.dumps(metrics), metrics['timestamp']))
+                
+                conn.commit()
+                logger.info(f"✅ Calculated metrics: accuracy={metrics['accuracy']:.2f}, precision={metrics['precision']:.2f}")
+                return metrics
+                
+            except Exception as e:
+                logger.error(f"❌ Error during prediction: {str(e)}")
+                # If prediction fails, try retraining and calculating metrics again
+                self.train(retrain=True)
+                return self.calculate_metrics()
             
         except Exception as e:
-            logger.error(f"❌ Error calculating metrics: {e}")
+            logger.error(f"❌ Error calculating metrics: {str(e)}")
             return None
         finally:
             conn.close()
