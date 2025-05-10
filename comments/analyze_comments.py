@@ -145,12 +145,20 @@ class CommentAnalyzer:
     def mark_comment_as_spam(self, comment_id, is_spam):
         """Mark a comment as spam/not spam and use it for training."""
         try:
-            self.spam_detector.mark_as_spam(comment_id, is_spam)
-            
-            # Retrain model if we have enough new training data
+            # First check if comment exists
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
+            cursor.execute("SELECT text FROM comments WHERE comment_id = ?", (comment_id,))
+            result = cursor.fetchone()
+            if not result:
+                conn.close()
+                return {'status': 'error', 'error': f'Comment {comment_id} not found'}
+            
+            # Mark comment and add to training data
+            self.spam_detector.mark_as_spam(comment_id, is_spam)
+            
+            # Check for retraining
             cursor.execute("""
                 SELECT COUNT(*) FROM spam_training 
                 WHERE trained_at > (
@@ -172,6 +180,70 @@ class CommentAnalyzer:
             
         except Exception as e:
             log_error(self.logger, e, f"Failed to mark comment {comment_id} as spam")
+            return {'status': 'error', 'error': str(e)}
+
+    def mark_comments_as_spam(self, comment_ids, is_spam):
+        """Mark multiple comments as spam/not spam in bulk."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # First check if all comments exist
+            placeholders = ','.join(['?' for _ in comment_ids])
+            cursor.execute(f"""
+                SELECT comment_id, text FROM comments 
+                WHERE comment_id IN ({placeholders})
+            """, comment_ids)
+            
+            existing_comments = cursor.fetchall()
+            if len(existing_comments) != len(comment_ids):
+                found_ids = {comment[0] for comment in existing_comments}
+                missing_ids = [id for id in comment_ids if id not in found_ids]
+                return {
+                    'status': 'error',
+                    'error': f'Comments not found: {", ".join(missing_ids)}'
+                }
+            
+            # Mark each comment and add to training data
+            processed = 0
+            for comment_id, text in existing_comments:
+                try:
+                    self.spam_detector.mark_as_spam(comment_id, is_spam)
+                    processed += 1
+                except Exception as e:
+                    log_error(self.logger, e, f"Failed to mark comment {comment_id}")
+            
+            # Check if we should retrain
+            cursor.execute("""
+                SELECT COUNT(*) FROM spam_training 
+                WHERE trained_at > (
+                    SELECT COALESCE(MAX(created_at), '1970-01-01')
+                    FROM model_versions
+                    WHERE model_type = 'spam'
+                )
+            """)
+            
+            new_samples = cursor.fetchone()[0]
+            conn.close()
+            
+            # Retrain if we have enough new samples
+            if new_samples >= 10:
+                metrics = self.spam_detector.train()
+                return {
+                    'status': 'retrained',
+                    'processed': processed,
+                    'total': len(comment_ids),
+                    'metrics': metrics
+                }
+            
+            return {
+                'status': 'marked',
+                'processed': processed,
+                'total': len(comment_ids)
+            }
+            
+        except Exception as e:
+            log_error(self.logger, e, f"Failed to mark comments as spam")
             return {'status': 'error', 'error': str(e)}
 
     def get_toxicity_scores(self, text):

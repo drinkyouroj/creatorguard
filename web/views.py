@@ -245,3 +245,26 @@ def mark_comment_spam(comment_id):
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@bp.route('/api/comments/mark_spam_bulk', methods=['POST'])
+@login_required
+def mark_comments_spam_bulk():
+    """Mark multiple comments as spam or not spam."""
+    try:
+        data = request.get_json()
+        comment_ids = data.get('comment_ids', [])
+        is_spam = data.get('is_spam', True)
+        
+        if not comment_ids:
+            return jsonify({'error': 'No comments specified'}), 400
+        
+        analyzer = CommentAnalyzer()
+        result = analyzer.mark_comments_as_spam(comment_ids, is_spam)
+        
+        if result['status'] == 'error':
+            return jsonify({'error': result['error']}), 500
+            
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

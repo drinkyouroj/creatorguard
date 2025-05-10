@@ -147,10 +147,47 @@
                         </button>
                     </div>
                     
+                    <!-- Bulk Actions -->
+                    <div v-if="selectedComments.length > 0" class="mb-4 p-4 bg-gray-50 rounded-lg">
+                        <div class="flex items-center justify-between">
+                            <div class="text-sm text-gray-600">
+                                [[ selectedComments.length ]] comments selected
+                            </div>
+                            <div class="flex space-x-2">
+                                <button 
+                                    @click="markSelectedAsSpam(true)"
+                                    class="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700"
+                                >
+                                    Mark Selected as Spam
+                                </button>
+                                <button 
+                                    @click="markSelectedAsSpam(false)"
+                                    class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                                >
+                                    Mark Selected as Not Spam
+                                </button>
+                                <button 
+                                    @click="clearSelection"
+                                    class="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+                                >
+                                    Clear Selection
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200">
                             <thead>
                                 <tr>
+                                    <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        <input 
+                                            type="checkbox" 
+                                            v-model="selectAll"
+                                            @change="toggleSelectAll"
+                                            class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                        >
+                                    </th>
                                     <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Author</th>
                                     <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Comment</th>
                                     <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
@@ -159,6 +196,14 @@
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
                                 <tr v-for="comment in filteredComments" :key="comment.id">
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <input 
+                                            type="checkbox" 
+                                            v-model="selectedComments"
+                                            :value="comment.comment_id"
+                                            class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                        >
+                                    </td>
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <div class="text-sm text-gray-900">[[ comment.author ]]</div>
                                     </td>
@@ -214,7 +259,9 @@
                         showInsights: false,
                         currentVideoId: null,
                         comments: [],
-                        currentFilter: 'all'
+                        currentFilter: 'all',
+                        selectedComments: [],
+                        selectAll: false
                     }
                 },
                 computed: {
@@ -282,27 +329,79 @@
                         try {
                             const response = await axios.post(`/api/comments/${commentId}/mark_spam`, {
                                 is_spam: isSpam
-                            })
-                            const data = await response.json()
-                            if (response.ok) {
-                                // Refresh comments to show updated status
-                                await this.viewInsights(this.currentVideoId)
-                                
-                                // Show notification if model was retrained
-                                if (data.status === 'retrained') {
-                                    alert('Spam detection model has been retrained with new data!')
-                                }
-                            } else {
-                                alert(data.error || 'Failed to update spam status')
+                            });
+                            
+                            if (response.data.status === 'error') {
+                                throw new Error(response.data.error);
+                            }
+                            
+                            // Refresh comments to show updated status
+                            await this.viewInsights(this.currentVideoId);
+                            
+                            // Show notification if model was retrained
+                            if (response.data.status === 'retrained') {
+                                alert('Spam detection model has been retrained with new data!');
                             }
                         } catch (error) {
-                            console.error('Error marking as spam:', error)
-                            alert('Failed to update spam status')
+                            console.error('Error marking as spam:', error);
+                            alert(error.response?.data?.error || 'Failed to update spam status');
+                        }
+                    },
+                    toggleSelectAll() {
+                        if (this.selectAll) {
+                            this.selectedComments = this.filteredComments.map(c => c.comment_id);
+                        } else {
+                            this.selectedComments = [];
+                        }
+                    },
+                    
+                    clearSelection() {
+                        this.selectedComments = [];
+                        this.selectAll = false;
+                    },
+                    
+                    async markSelectedAsSpam(isSpam) {
+                        if (!this.selectedComments.length) return;
+                        
+                        try {
+                            const response = await axios.post('/api/comments/mark_spam_bulk', {
+                                comment_ids: this.selectedComments,
+                                is_spam: isSpam
+                            });
+                            
+                            if (response.data.status === 'error') {
+                                throw new Error(response.data.error);
+                            }
+                            
+                            // Refresh comments
+                            await this.viewInsights(this.currentVideoId);
+                            
+                            // Clear selection
+                            this.clearSelection();
+                            
+                            // Show results
+                            const {processed, total} = response.data;
+                            alert(`Successfully marked ${processed} out of ${total} comments`);
+                            
+                            // Show retraining notification
+                            if (response.data.status === 'retrained') {
+                                alert('Spam detection model has been retrained with new data!');
+                            }
+                        } catch (error) {
+                            console.error('Error marking comments as spam:', error);
+                            alert(error.response?.data?.error || 'Failed to update spam status');
                         }
                     },
                     formatDate(timestamp) {
                         if (!timestamp) return ''
                         return new Date(timestamp).toLocaleString()
+                    }
+                },
+                watch: {
+                    filteredComments() {
+                        // Update selectAll when filtered comments change
+                        this.selectAll = this.filteredComments.length > 0 && 
+                                       this.selectedComments.length === this.filteredComments.length;
                     }
                 }
             }).mount('#app')
