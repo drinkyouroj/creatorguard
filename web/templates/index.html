@@ -113,7 +113,7 @@
                                                 class="text-blue-600 hover:text-blue-900 mr-3">
                                             View Insights
                                         </button>
-                                        <button @click="viewMetrics(video.video_id)"
+                                        <button @click="viewMetrics()"
                                                 class="text-blue-600 hover:text-blue-900">
                                             View Metrics
                                         </button>
@@ -328,7 +328,8 @@
                             trends: []
                         },
                         trendChart: null,
-                        metricsChart: null
+                        metricsChart: null,
+                        loadingMetrics: false
                     }
                 },
                 computed: {
@@ -460,36 +461,69 @@
                         }
                     },
                     async viewMetrics() {
+                        if (this.loadingMetrics) return;
+                        
                         try {
+                            this.loadingMetrics = true;
                             this.showMetrics = true;
-                            const response = await axios.get('/api/metrics/spam');
-                            this.metrics = response.data;
                             
-                            this.$nextTick(() => {
+                            const response = await axios.get('/api/metrics/spam');
+                            if (!response.data) {
+                                throw new Error('No metrics data received');
+                            }
+                            
+                            this.metrics = {
+                                current: response.data.current || null,
+                                history: response.data.history || [],
+                                trends: response.data.trends || []
+                            };
+                            
+                            // Wait for Vue to update the DOM
+                            await this.$nextTick();
+                            
+                            if (this.metrics.trends.length > 0) {
                                 this.renderTrendChart();
+                            }
+                            
+                            if (this.metrics.history.length > 0) {
                                 this.renderMetricsChart();
-                            });
+                            }
+                            
                         } catch (error) {
                             console.error('Error fetching metrics:', error);
-                            alert('Failed to load metrics');
+                            alert(error.response?.data?.error || 'Failed to load metrics. Please try again.');
+                        } finally {
+                            this.loadingMetrics = false;
                         }
                     },
                     closeMetrics() {
                         this.showMetrics = false;
                         if (this.trendChart) {
                             this.trendChart.destroy();
+                            this.trendChart = null;
                         }
                         if (this.metricsChart) {
                             this.metricsChart.destroy();
+                            this.metricsChart = null;
                         }
                     },
                     renderTrendChart() {
+                        if (!this.$refs.trendChart) {
+                            console.error('Trend chart canvas not found');
+                            return;
+                        }
+                        
                         const ctx = this.$refs.trendChart.getContext('2d');
                         if (this.trendChart) {
                             this.trendChart.destroy();
                         }
                         
                         const data = this.metrics.trends;
+                        if (!data || data.length === 0) {
+                            console.warn('No trend data available');
+                            return;
+                        }
+                        
                         this.trendChart = new Chart(ctx, {
                             type: 'line',
                             data: {
@@ -503,6 +537,7 @@
                             },
                             options: {
                                 responsive: true,
+                                maintainAspectRatio: false,
                                 scales: {
                                     y: {
                                         beginAtZero: true,
@@ -516,12 +551,22 @@
                         });
                     },
                     renderMetricsChart() {
+                        if (!this.$refs.metricsChart) {
+                            console.error('Metrics chart canvas not found');
+                            return;
+                        }
+                        
                         const ctx = this.$refs.metricsChart.getContext('2d');
                         if (this.metricsChart) {
                             this.metricsChart.destroy();
                         }
                         
                         const data = this.metrics.history;
+                        if (!data || data.length === 0) {
+                            console.warn('No metrics history available');
+                            return;
+                        }
+                        
                         this.metricsChart = new Chart(ctx, {
                             type: 'line',
                             data: {
@@ -549,6 +594,7 @@
                             },
                             options: {
                                 responsive: true,
+                                maintainAspectRatio: false,
                                 scales: {
                                     y: {
                                         beginAtZero: true,

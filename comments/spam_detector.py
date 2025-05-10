@@ -1,15 +1,16 @@
 import os
-import json
 import sqlite3
+import json
 from datetime import datetime
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import joblib
 import re
 from collections import Counter
+from utils.logger import log_error, log_info
 import nltk
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
@@ -20,18 +21,18 @@ nltk.download('stopwords')
 nltk.download('averaged_perceptron_tagger')
 
 class SpamDetector:
-    def __init__(self, db_path='creatorguard.db', model_dir='models'):
+    def __init__(self, db_path='creatorguard.db'):
         """Initialize spam detector with database connection and model loading."""
         self.db_path = db_path
-        self.model_dir = model_dir
-        self.vectorizer = None
         self.model = None
+        self.vectorizer = None
         
         # Create models directory if it doesn't exist
+        model_dir = 'models'
         os.makedirs(model_dir, exist_ok=True)
         
         # Load or initialize model
-        self.load_or_initialize_model()
+        self.load_latest_model()
 
     def extract_features(self, text):
         """Extract spam-related features from text."""
@@ -65,25 +66,27 @@ class SpamDetector:
             return 0
         return len(words.intersection(spam_indicators)) / len(words)
 
-    def load_or_initialize_model(self):
+    def load_latest_model(self):
         """Load existing model or initialize a new one."""
-        model_path = os.path.join(self.model_dir, 'spam_model.joblib')
-        vectorizer_path = os.path.join(self.model_dir, 'vectorizer.joblib')
+        model_dir = 'models'
+        model_path = os.path.join(model_dir, 'spam_model.joblib')
+        vectorizer_path = os.path.join(model_dir, 'vectorizer.joblib')
         
         try:
             self.model = joblib.load(model_path)
             self.vectorizer = joblib.load(vectorizer_path)
-            print("✅ Loaded existing spam detection model")
+            log_info("✅ Loaded existing spam detection model")
         except FileNotFoundError:
-            print("🆕 Initializing new spam detection model")
+            log_info("🆕 Initializing new spam detection model")
             self.model = RandomForestClassifier(n_estimators=100, random_state=42)
             self.vectorizer = TfidfVectorizer(max_features=1000)
 
     def save_model(self, metrics=None):
         """Save model and update database with version info."""
         # Save model files
-        model_path = os.path.join(self.model_dir, 'spam_model.joblib')
-        vectorizer_path = os.path.join(self.model_dir, 'vectorizer.joblib')
+        model_dir = 'models'
+        model_path = os.path.join(model_dir, 'spam_model.joblib')
+        vectorizer_path = os.path.join(model_dir, 'vectorizer.joblib')
         
         joblib.dump(self.model, model_path)
         joblib.dump(self.vectorizer, vectorizer_path)
@@ -104,7 +107,7 @@ class SpamDetector:
         conn.commit()
         conn.close()
         
-        print(f"✅ Saved spam detection model version {version}")
+        log_info(f"✅ Saved spam detection model version {version}")
 
     def predict_spam(self, text):
         """Predict if text is spam and return probability."""
@@ -148,7 +151,7 @@ class SpamDetector:
         training_data = cursor.fetchall()
         
         if not training_data and not retrain:
-            print("No new training data available")
+            log_info("No new training data available")
             return
         
         # Prepare features and labels
@@ -181,7 +184,7 @@ class SpamDetector:
         
         # Evaluate
         y_pred = self.model.predict(X_test)
-        metrics = classification_report(y_test, y_pred, output_dict=True)
+        metrics = accuracy_score(y_test, y_pred), precision_score(y_test, y_pred), recall_score(y_test, y_pred), f1_score(y_test, y_pred)
         
         # Save model and metrics
         self.save_model(metrics)
@@ -219,10 +222,10 @@ class SpamDetector:
             """, (is_spam, features, comment_id))
             
             conn.commit()
-            print(f"✅ Marked comment {comment_id} as {'spam' if is_spam else 'not spam'}")
+            log_info(f"✅ Marked comment {comment_id} as {'spam' if is_spam else 'not spam'}")
             
         except Exception as e:
-            print(f"❌ Error marking comment as spam: {e}")
+            log_error(f"❌ Error marking comment as spam: {e}")
             conn.rollback()
         finally:
             conn.close()
@@ -274,7 +277,7 @@ class SpamDetector:
             return metrics
             
         except Exception as e:
-            print(f"❌ Error calculating metrics: {e}")
+            log_error(f"❌ Error calculating metrics: {e}")
             return None
         finally:
             conn.close()
@@ -302,7 +305,7 @@ class SpamDetector:
             ]
             
         except Exception as e:
-            print(f"❌ Error getting metrics history: {e}")
+            log_error(f"❌ Error getting metrics history: {e}")
             return []
         finally:
             conn.close()
@@ -335,7 +338,7 @@ class SpamDetector:
             ]
             
         except Exception as e:
-            print(f"❌ Error getting spam trends: {e}")
+            log_error(f"❌ Error getting spam trends: {e}")
             return []
         finally:
             conn.close()
@@ -350,4 +353,4 @@ if __name__ == '__main__':
     # Test prediction
     test_comment = "FREE IPHONE! Click here to claim your prize! www.scam.com"
     result = detector.predict_spam(test_comment)
-    print(f"Spam prediction: {result}")
+    log_info(f"Spam prediction: {result}")

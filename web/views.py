@@ -275,10 +275,15 @@ def get_spam_metrics():
     """Get spam detection metrics and trends."""
     try:
         days = request.args.get('days', default=30, type=int)
+        if days <= 0 or days > 365:
+            return jsonify({'error': 'Days must be between 1 and 365'}), 400
+            
         detector = SpamDetector()
         
         # Get current metrics
         current_metrics = detector.calculate_metrics()
+        if not current_metrics:
+            return jsonify({'error': 'No metrics data available yet'}), 404
         
         # Get historical metrics
         metrics_history = detector.get_metrics_history(days)
@@ -293,4 +298,5 @@ def get_spam_metrics():
         })
         
     except Exception as e:
+        log_error(None, e, "Failed to get spam metrics")
         return jsonify({'error': str(e)}), 500
