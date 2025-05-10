@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import json
+import httpx
 from openai import OpenAI
 from dotenv import load_dotenv
 from collections import Counter
@@ -9,7 +10,15 @@ from collections import Counter
 load_dotenv()
 
 # Configure OpenAI API
-client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+try:
+    client = OpenAI(
+        api_key=os.getenv('OPENAI_API_KEY'),
+        http_client=httpx.Client()  # Explicitly create an httpx client
+    )
+except Exception as e:
+    print(f"Error initializing OpenAI client: {e}")
+    client = None
+
 MODEL = os.getenv('OPENAI_MODEL', 'gpt-4-turbo')
 
 class CommentAnalyzer:
@@ -77,6 +86,10 @@ class CommentAnalyzer:
         Returns:
             str: Comprehensive summary of comment insights
         """
+        # Check if client is initialized
+        if client is None:
+            return "Error: OpenAI client could not be initialized."
+
         try:
             # Prepare prompt for GPT
             prompt = f"""Analyze the following YouTube comment statistics and provide a comprehensive, insightful summary:
@@ -91,7 +104,7 @@ Moderation Action Breakdown:
 
 Provide insights into audience engagement, potential content trends, and recommendations for content creators."""
 
-            # Call OpenAI API with new method
+            # Call OpenAI API 
             response = client.chat.completions.create(
                 model=MODEL,
                 messages=[
@@ -106,7 +119,7 @@ Provide insights into audience engagement, potential content trends, and recomme
         
         except Exception as e:
             print(f"Error generating summary: {e}")
-            return "Unable to generate summary due to an error."
+            return f"Unable to generate summary: {str(e)}"
 
     def save_insights(self, video_id, summary):
         """
