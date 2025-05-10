@@ -59,3 +59,8 @@ def log_warning(logger, message, context=None):
     if context:
         warning_msg = f"{warning_msg}\nContext: {context}"
     logger.warning(warning_msg)
+
+def log_info(logger, message):
+    """Log an info message."""
+    logger.info(message)
+    return message
