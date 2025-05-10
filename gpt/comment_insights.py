@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import json
-import openai
+from openai import OpenAI
 from dotenv import load_dotenv
 from collections import Counter
 
@@ -9,7 +9,7 @@ from collections import Counter
 load_dotenv()
 
 # Configure OpenAI API
-openai.api_key = os.getenv('OPENAI_API_KEY')
+client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 MODEL = os.getenv('OPENAI_MODEL', 'gpt-4-turbo')
 
 class CommentAnalyzer:
@@ -33,8 +33,8 @@ class CommentAnalyzer:
         Returns:
             dict: Comment statistics
         """
-        # Base query
-        query = "SELECT classification, mod_action FROM comments"
+        # Base query with more detailed error checking
+        query = "SELECT classification, mod_action, text FROM comments"
         params = []
         
         # Add video_id filter if provided
@@ -42,114 +42,116 @@ class CommentAnalyzer:
             query += " WHERE video_id = ?"
             params.append(video_id)
         
-        # Execute query
-        self.cursor.execute(query, params)
-        comments = self.cursor.fetchall()
+        # Execute query with error handling
+        try:
+            self.cursor.execute(query, params)
+            comments = self.cursor.fetchall()
+            
+            # Print raw comments for debugging
+            print(f"Total comments found: {len(comments)}")
+            print("Sample comments:")
+            for comment in comments[:5]:
+                print(f"Classification: {comment[0]}, Mod Action: {comment[1]}, Text: {comment[2][:50]}...")
+            
+            # Compute comment statistics
+            stats = {
+                "total_comments": len(comments),
+                "classification_breakdown": dict(Counter(comment[0] for comment in comments if comment[0])),
+                "mod_action_breakdown": dict(Counter(comment[1] for comment in comments if comment[1])),
+                "sentiment_ratio": {}  # TODO: Implement sentiment ratio calculation
+            }
+            
+            return stats
         
-        # Calculate statistics
-        stats = {
-            'total_comments': len(comments),
-            'classification_breakdown': dict(Counter(comment[0] for comment in comments)),
-            'mod_action_breakdown': dict(Counter(comment[1] for comment in comments)),
-            'sentiment_ratio': {}
-        }
-        
-        # Calculate sentiment ratios
-        total = stats['total_comments']
-        for category, count in stats['classification_breakdown'].items():
-            stats['sentiment_ratio'][category] = round(count / total * 100, 2)
-        
-        return stats
+        except sqlite3.Error as e:
+            print(f"Database error: {e}")
+            return {}
 
-    def generate_comprehensive_summary(self, video_id=None):
+    def generate_comprehensive_summary(self, stats):
         """
-        Use GPT to generate a comprehensive summary of comment insights.
+        Generate a comprehensive summary of comment insights using GPT.
         
         Args:
-            video_id (str, optional): Specific video to analyze
+            stats (dict): Comment statistics
         
         Returns:
-            str: Detailed GPT-generated summary
+            str: Comprehensive summary of comment insights
         """
-        # Get comment stats
-        stats = self.get_comment_stats(video_id)
-        
-        # Prepare prompt for GPT
-        prompt = f"""Analyze the following YouTube comment statistics and provide a comprehensive, insightful summary:
-
-Comment Statistics:
-- Total Comments: {stats['total_comments']}
-- Classification Breakdown: {json.dumps(stats['classification_breakdown'])}
-- Sentiment Ratios: {json.dumps(stats['sentiment_ratio'])}
-- Moderation Action Breakdown: {json.dumps(stats['mod_action_breakdown'])}
-
-Please provide a detailed analysis that includes:
-1. Overall sentiment of the comments
-2. Key insights about audience engagement
-3. Potential areas of improvement or concern
-4. Recommendations for content strategy
-
-Your response should be professional, constructive, and actionable."""
-
         try:
-            response = openai.ChatCompletion.create(
+            # Prepare prompt for GPT
+            prompt = f"""Analyze the following YouTube comment statistics and provide a comprehensive, insightful summary:
+
+Total Comments: {stats['total_comments']}
+
+Classification Breakdown:
+{json.dumps(stats['classification_breakdown'], indent=2)}
+
+Moderation Action Breakdown:
+{json.dumps(stats['mod_action_breakdown'], indent=2)}
+
+Provide insights into audience engagement, potential content trends, and recommendations for content creators."""
+
+            # Call OpenAI API with new method
+            response = client.chat.completions.create(
                 model=MODEL,
                 messages=[
-                    {"role": "system", "content": "You are an expert content and audience insights analyst."},
+                    {"role": "system", "content": "You are a helpful content analysis assistant."},
                     {"role": "user", "content": prompt}
-                ],
-                max_tokens=500,
-                temperature=0.3
+                ]
             )
             
-            return response.choices[0].message.content
+            # Extract summary from response
+            summary = response.choices[0].message.content
+            return summary
         
         except Exception as e:
-            return f"Error generating summary: {str(e)}"
+            print(f"Error generating summary: {e}")
+            return "Unable to generate summary due to an error."
 
-    def save_insights(self, insights, filename='comment_insights.md'):
+    def save_insights(self, video_id, summary):
         """
-        Save insights to a markdown file.
+        Save comment insights to a markdown file.
         
         Args:
-            insights (str): Insights text to save
-            filename (str): Filename to save insights
+            video_id (str): Video ID for which insights are generated
+            summary (str): Comprehensive summary of insights
         """
-        insights_dir = 'insights'
-        os.makedirs(insights_dir, exist_ok=True)
+        # Ensure insights directory exists
+        os.makedirs('insights', exist_ok=True)
         
-        filepath = os.path.join(insights_dir, filename)
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write("# Comment Insights\n\n")
-            f.write(insights)
+        # Generate filename
+        filename = f'insights/comment_insights_{video_id}.md'
         
-        print(f"✅ Insights saved to {filepath}")
-
-    def close(self):
-        """Close database connection."""
-        self.conn.close()
+        # Write insights to file
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(f"# Comment Insights for Video: {video_id}\n\n")
+            f.write(summary)
+        
+        print(f"✅ Insights saved to {filename}")
 
 def main():
-    # Example usage
-    analyzer = CommentAnalyzer()
+    # Prompt for video ID
+    video_id = input("🎥 Enter YouTube video ID: ").strip()
     
     try:
-        # Get stats for all comments
-        all_stats = analyzer.get_comment_stats()
-        print("Overall Comment Statistics:")
-        print(json.dumps(all_stats, indent=2))
+        # Create analyzer
+        analyzer = CommentAnalyzer()
+        
+        # Get comment statistics
+        stats = analyzer.get_comment_stats(video_id)
+        print("Video Comment Statistics:")
+        print(json.dumps(stats, indent=2))
         
         # Generate comprehensive summary
-        summary = analyzer.generate_comprehensive_summary()
+        summary = analyzer.generate_comprehensive_summary(stats)
+        print("\n--- Comprehensive Summary ---")
+        print(summary)
         
-        # Save insights to file
-        analyzer.save_insights(summary)
+        # Save insights
+        analyzer.save_insights(video_id, summary)
     
     except Exception as e:
-        print(f"Error analyzing comments: {e}")
-    
-    finally:
-        analyzer.close()
+        print(f"❌ Error analyzing comments: {e}")
 
 if __name__ == '__main__':
     main()
