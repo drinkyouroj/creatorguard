@@ -1,4 +1,5 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, redirect, url_for, flash
+from flask_login import login_required, login_user, logout_user, current_user
 import sqlite3
 import os
 import sys
@@ -7,15 +8,62 @@ from datetime import datetime
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from gpt.comment_insights import CommentAnalyzer
+from comments.fetch_comments import YouTubeCommentFetcher
+from auth import login_manager, init_auth_db, register_user, verify_user
 
 app = Flask(__name__)
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-key-change-this')  # Change in production
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+# Initialize authentication database
+init_auth_db()
 
 @app.route('/')
+@login_required
 def index():
     """Render the dashboard homepage."""
     return render_template('index.html')
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Handle user login."""
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        user = verify_user(username, password)
+        
+        if user:
+            login_user(user)
+            return redirect(url_for('index'))
+        flash('Invalid username or password')
+    
+    return render_template('login.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    """Handle user registration."""
+    if request.method == 'POST':
+        username = request.form.get('username')
+        email = request.form.get('email')
+        password = request.form.get('password')
+        
+        if register_user(username, email, password):
+            flash('Registration successful! Please login.')
+            return redirect(url_for('login'))
+        flash('Username or email already exists')
+    
+    return render_template('register.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    """Handle user logout."""
+    logout_user()
+    return redirect(url_for('login'))
+
 @app.route('/api/videos')
+@login_required
 def get_videos():
     """Get list of videos with comments."""
     try:
@@ -45,6 +93,7 @@ def get_videos():
         conn.close()
 
 @app.route('/api/insights/<video_id>')
+@login_required
 def get_insights(video_id):
     """Get insights for a specific video."""
     try:
@@ -55,6 +104,7 @@ def get_insights(video_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/comments/<video_id>')
+@login_required
 def get_comments(video_id):
     """Get paginated comments for a video."""
     page = int(request.args.get('page', 1))
@@ -99,6 +149,25 @@ def get_comments(video_id):
         return jsonify({'error': str(e)}), 500
     finally:
         conn.close()
+
+@app.route('/api/videos/import', methods=['POST'])
+@login_required
+def import_video():
+    """Import comments from a new YouTube video."""
+    video_id = request.form.get('video_id')
+    if not video_id:
+        return jsonify({'error': 'Video ID is required'}), 400
+    
+    try:
+        fetcher = YouTubeCommentFetcher()
+        comment_count = fetcher.fetch_comments(video_id)
+        return jsonify({
+            'success': True,
+            'message': f'Successfully imported {comment_count} comments',
+            'video_id': video_id
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
