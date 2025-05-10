@@ -6,6 +6,7 @@ from nltk.sentiment import SentimentIntensityAnalyzer
 from transformers import pipeline
 from collections import Counter
 import re
+from ..utils.logger import setup_logger, log_error, log_warning
 
 # Download required NLTK data
 nltk.download('vader_lexicon', quiet=True)
@@ -14,96 +15,175 @@ class CommentAnalyzer:
     def __init__(self, db_path='creatorguard.db'):
         """Initialize the comment analyzer."""
         self.db_path = db_path
-        self.sia = SentimentIntensityAnalyzer()
-        # Load toxicity classifier
-        self.toxicity = pipeline('text-classification', 
-                               model='unitary/toxic-bert', 
-                               return_all_scores=True)
+        self.logger = setup_logger('comment_analyzer')
+        
+        try:
+            self.sia = SentimentIntensityAnalyzer()
+            self.logger.info("Initialized VADER sentiment analyzer")
+        except Exception as e:
+            log_error(self.logger, e, "Failed to initialize VADER")
+            raise
+            
+        try:
+            # Load toxicity classifier
+            self.toxicity = pipeline('text-classification', 
+                                   model='unitary/toxic-bert', 
+                                   return_all_scores=True)
+            self.logger.info("Initialized toxic-bert model")
+        except Exception as e:
+            log_error(self.logger, e, "Failed to initialize toxic-bert")
+            raise
 
     def analyze_comments(self, video_id):
         """Analyze all unanalyzed comments for a video."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Get unanalyzed comments
-        cursor.execute("""
-            SELECT comment_id, text 
-            FROM comments 
-            WHERE video_id = ? 
-            AND classification IS NULL
-        """, (video_id,))
-        comments = cursor.fetchall()
-
-        print(f"🔍 Analyzing {len(comments)} comments for video {video_id}")
+        self.logger.info(f"Starting analysis for video {video_id}")
         
-        for comment_id, text in comments:
-            # Get sentiment scores
-            sentiment_scores = self.sia.polarity_scores(text)
-            compound_score = sentiment_scores['compound']
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # Get unanalyzed comments
+            cursor.execute("""
+                SELECT comment_id, text 
+                FROM comments 
+                WHERE video_id = ? 
+                AND classification IS NULL
+            """, (video_id,))
+            comments = cursor.fetchall()
+
+            self.logger.info(f"Found {len(comments)} unanalyzed comments")
             
-            # Get toxicity scores
-            try:
-                toxicity_scores = self.toxicity(text)  # This returns a list of dictionaries
-                toxicity_level = max(toxicity_scores[0], key=lambda x: x['score'])  # Get highest score from first result
-            except Exception as e:
-                print(f"⚠️ Error in toxicity analysis: {e}")
-                toxicity_level = {'label': 'unknown', 'score': 0.0}
+            analysis_results = {
+                'total': len(comments),
+                'processed': 0,
+                'errors': 0,
+                'classifications': Counter()
+            }
+            
+            for comment_id, text in comments:
+                try:
+                    # Get sentiment scores
+                    sentiment_scores = self.sia.polarity_scores(text)
+                    compound_score = sentiment_scores['compound']
+                    
+                    # Get toxicity scores with detailed analysis
+                    toxicity_result = self._analyze_toxicity(text)
+                    
+                    # Determine classification and moderation action
+                    classification = self._get_classification(compound_score, toxicity_result)
+                    mod_action = self._get_mod_action(classification, toxicity_result)
+                    
+                    # Update database with detailed analysis
+                    cursor.execute("""
+                        UPDATE comments 
+                        SET classification = ?,
+                            mod_action = ?,
+                            emotional_score = ?,
+                            toxicity_score = ?,
+                            sentiment_scores = ?,
+                            toxicity_details = ?
+                        WHERE comment_id = ?
+                    """, (
+                        classification,
+                        mod_action,
+                        compound_score,
+                        toxicity_result['score'],
+                        str(sentiment_scores),
+                        str(toxicity_result['details']),
+                        comment_id
+                    ))
+                    
+                    analysis_results['processed'] += 1
+                    analysis_results['classifications'][classification] += 1
+                    
+                except Exception as e:
+                    analysis_results['errors'] += 1
+                    log_error(self.logger, e, f"Failed to analyze comment {comment_id}")
+                    continue
 
-            # Determine classification and moderation action
-            classification = self._get_classification(compound_score, toxicity_level)
-            mod_action = self._get_mod_action(classification, toxicity_level)
+            conn.commit()
+            
+            # Log analysis results
+            self.logger.info(f"Analysis complete: {analysis_results['processed']} processed, "
+                           f"{analysis_results['errors']} errors")
+            for cls, count in analysis_results['classifications'].items():
+                self.logger.info(f"{cls}: {count}")
 
-            # Update database
-            try:
-                cursor.execute("""
-                    UPDATE comments 
-                    SET classification = ?,
-                        mod_action = ?,
-                        emotional_score = ?
-                    WHERE comment_id = ?
-                """, (classification, mod_action, compound_score, comment_id))
-            except sqlite3.Error as e:
-                print(f"⚠️ Database error: {e}")
-                continue
+            # Get and return analysis summary
+            summary = self.get_analysis_summary(video_id)
+            return summary
 
-        conn.commit()
-        
-        # Get analysis summary
-        summary = self.get_analysis_summary(video_id)
-        print("\n📊 Analysis Summary:")
-        print(f"Total Comments Analyzed: {len(comments)}")
-        print("\nClassifications:")
-        for cls, count in summary['classifications'].items():
-            print(f"- {cls}: {count}")
-        print("\nModeration Actions:")
-        for action, count in summary['mod_actions'].items():
-            print(f"- {action}: {count}")
+        except sqlite3.Error as e:
+            log_error(self.logger, e, f"Database error during analysis of video {video_id}")
+            raise
+        except Exception as e:
+            log_error(self.logger, e, f"Unexpected error during analysis of video {video_id}")
+            raise
+        finally:
+            conn.close()
 
-        conn.close()
-        return summary
+    def _analyze_toxicity(self, text):
+        """Perform detailed toxicity analysis."""
+        try:
+            scores = self.toxicity(text)[0]
+            
+            # Get the highest scoring category
+            max_score = max(scores, key=lambda x: x['score'])
+            
+            # Get all high-scoring categories (>0.3)
+            significant_categories = [
+                s for s in scores 
+                if s['score'] > 0.3
+            ]
+            
+            return {
+                'label': max_score['label'],
+                'score': max_score['score'],
+                'details': {
+                    'main_category': max_score['label'],
+                    'main_score': max_score['score'],
+                    'other_concerns': [
+                        {'category': s['label'], 'score': s['score']}
+                        for s in significant_categories
+                        if s != max_score
+                    ]
+                }
+            }
+            
+        except Exception as e:
+            log_error(self.logger, e, "Error in toxicity analysis")
+            return {'label': 'unknown', 'score': 0.0, 'details': {}}
 
     def _get_classification(self, sentiment_score, toxicity_result):
         """Determine comment classification based on sentiment and toxicity."""
-        if toxicity_result['label'] == 'toxic' and toxicity_result['score'] > 0.7:
-            return 'toxic'
-        elif toxicity_result['label'] == 'toxic' and toxicity_result['score'] > 0.4:
-            return 'questionable'
-        elif sentiment_score >= 0.3:
-            return 'positive'
-        elif sentiment_score <= -0.3:
-            return 'negative'
-        else:
-            return 'neutral'
+        try:
+            if toxicity_result['label'] == 'toxic' and toxicity_result['score'] > 0.7:
+                return 'toxic'
+            elif toxicity_result['label'] == 'toxic' and toxicity_result['score'] > 0.4:
+                return 'questionable'
+            elif sentiment_score >= 0.3:
+                return 'positive'
+            elif sentiment_score <= -0.3:
+                return 'negative'
+            else:
+                return 'neutral'
+        except Exception as e:
+            log_error(self.logger, e, "Error in classification")
+            return 'unknown'
 
     def _get_mod_action(self, classification, toxicity_result):
         """Determine moderation action based on classification."""
-        if classification == 'toxic':
-            return 'hide'
-        elif classification == 'questionable':
-            return 'flag'
-        elif toxicity_result['score'] > 0.3:
-            return 'review'
-        else:
+        try:
+            if classification == 'toxic':
+                return 'hide'
+            elif classification == 'questionable':
+                return 'flag'
+            elif toxicity_result['score'] > 0.3:
+                return 'review'
+            else:
+                return None
+        except Exception as e:
+            log_warning(self.logger, f"Error determining mod action: {e}")
             return None
 
     def get_analysis_summary(self, video_id):
