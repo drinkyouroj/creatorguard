@@ -75,6 +75,16 @@ CREATE TABLE IF NOT EXISTS model_versions (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Model metrics table
+CREATE TABLE IF NOT EXISTS model_metrics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_type TEXT NOT NULL,
+    metrics TEXT NOT NULL,  -- JSON containing metrics data
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_model_metrics_type_date ON model_metrics(model_type, created_at);
+
 -- Indices for better query performance
 CREATE INDEX IF NOT EXISTS idx_comments_video_id ON comments(video_id);
 CREATE INDEX IF NOT EXISTS idx_comments_classification ON comments(classification);

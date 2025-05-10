@@ -268,3 +268,29 @@ def mark_comments_spam_bulk():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@bp.route('/api/metrics/spam', methods=['GET'])
+@login_required
+def get_spam_metrics():
+    """Get spam detection metrics and trends."""
+    try:
+        days = request.args.get('days', default=30, type=int)
+        detector = SpamDetector()
+        
+        # Get current metrics
+        current_metrics = detector.calculate_metrics()
+        
+        # Get historical metrics
+        metrics_history = detector.get_metrics_history(days)
+        
+        # Get spam trends
+        trends = detector.get_spam_trends(days)
+        
+        return jsonify({
+            'current': current_metrics,
+            'history': metrics_history,
+            'trends': trends
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

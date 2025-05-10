@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body class="bg-gray-100">
     <nav class="bg-white shadow-lg">
@@ -111,6 +112,10 @@
                                         <button @click="viewInsights(video.video_id)"
                                                 class="text-blue-600 hover:text-blue-900 mr-3">
                                             View Insights
+                                        </button>
+                                        <button @click="viewMetrics(video.video_id)"
+                                                class="text-blue-600 hover:text-blue-900">
+                                            View Metrics
                                         </button>
                                     </td>
                                 </tr>
@@ -244,6 +249,60 @@
             </div>
         </div>
 
+        <!-- Metrics Modal -->
+        <div v-if="showMetrics" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+            <div class="relative top-20 mx-auto p-5 border w-4/5 shadow-lg rounded-md bg-white">
+                <div class="flex justify-between items-center pb-3">
+                    <h3 class="text-xl font-medium text-gray-900">Spam Detection Metrics</h3>
+                    <button @click="closeMetrics" class="text-gray-400 hover:text-gray-500">
+                        <span class="text-2xl">&times;</span>
+                    </button>
+                </div>
+                
+                <div class="mt-4">
+                    <!-- Current Metrics -->
+                    <div v-if="metrics.current" class="grid grid-cols-4 gap-4 mb-8">
+                        <div class="bg-white p-4 rounded-lg shadow">
+                            <div class="text-sm text-gray-500">Accuracy</div>
+                            <div class="text-2xl font-semibold text-gray-900">
+                                [[ (metrics.current.accuracy * 100).toFixed(1) ]]%
+                            </div>
+                        </div>
+                        <div class="bg-white p-4 rounded-lg shadow">
+                            <div class="text-sm text-gray-500">Precision</div>
+                            <div class="text-2xl font-semibold text-gray-900">
+                                [[ (metrics.current.precision * 100).toFixed(1) ]]%
+                            </div>
+                        </div>
+                        <div class="bg-white p-4 rounded-lg shadow">
+                            <div class="text-sm text-gray-500">Recall</div>
+                            <div class="text-2xl font-semibold text-gray-900">
+                                [[ (metrics.current.recall * 100).toFixed(1) ]]%
+                            </div>
+                        </div>
+                        <div class="bg-white p-4 rounded-lg shadow">
+                            <div class="text-sm text-gray-500">F1 Score</div>
+                            <div class="text-2xl font-semibold text-gray-900">
+                                [[ (metrics.current.f1 * 100).toFixed(1) ]]%
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Trends Chart -->
+                    <div class="bg-white p-4 rounded-lg shadow mb-8">
+                        <h4 class="text-lg font-medium text-gray-900 mb-4">Spam Trends</h4>
+                        <canvas ref="trendChart" width="400" height="200"></canvas>
+                    </div>
+                    
+                    <!-- Metrics History -->
+                    <div class="bg-white p-4 rounded-lg shadow">
+                        <h4 class="text-lg font-medium text-gray-900 mb-4">Model Performance History</h4>
+                        <canvas ref="metricsChart" width="400" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <script>
             const { createApp } = Vue
 
@@ -261,7 +320,15 @@
                         comments: [],
                         currentFilter: 'all',
                         selectedComments: [],
-                        selectAll: false
+                        selectAll: false,
+                        showMetrics: false,
+                        metrics: {
+                            current: null,
+                            history: [],
+                            trends: []
+                        },
+                        trendChart: null,
+                        metricsChart: null
                     }
                 },
                 computed: {
@@ -391,6 +458,108 @@
                             console.error('Error marking comments as spam:', error);
                             alert(error.response?.data?.error || 'Failed to update spam status');
                         }
+                    },
+                    async viewMetrics() {
+                        try {
+                            this.showMetrics = true;
+                            const response = await axios.get('/api/metrics/spam');
+                            this.metrics = response.data;
+                            
+                            this.$nextTick(() => {
+                                this.renderTrendChart();
+                                this.renderMetricsChart();
+                            });
+                        } catch (error) {
+                            console.error('Error fetching metrics:', error);
+                            alert('Failed to load metrics');
+                        }
+                    },
+                    closeMetrics() {
+                        this.showMetrics = false;
+                        if (this.trendChart) {
+                            this.trendChart.destroy();
+                        }
+                        if (this.metricsChart) {
+                            this.metricsChart.destroy();
+                        }
+                    },
+                    renderTrendChart() {
+                        const ctx = this.$refs.trendChart.getContext('2d');
+                        if (this.trendChart) {
+                            this.trendChart.destroy();
+                        }
+                        
+                        const data = this.metrics.trends;
+                        this.trendChart = new Chart(ctx, {
+                            type: 'line',
+                            data: {
+                                labels: data.map(d => d.date),
+                                datasets: [{
+                                    label: 'Spam Ratio',
+                                    data: data.map(d => (d.ratio * 100).toFixed(1)),
+                                    borderColor: 'rgb(234, 88, 12)',
+                                    tension: 0.1
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        title: {
+                                            display: true,
+                                            text: 'Spam %'
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    },
+                    renderMetricsChart() {
+                        const ctx = this.$refs.metricsChart.getContext('2d');
+                        if (this.metricsChart) {
+                            this.metricsChart.destroy();
+                        }
+                        
+                        const data = this.metrics.history;
+                        this.metricsChart = new Chart(ctx, {
+                            type: 'line',
+                            data: {
+                                labels: data.map(d => new Date(d.created_at).toLocaleDateString()),
+                                datasets: [
+                                    {
+                                        label: 'Accuracy',
+                                        data: data.map(d => (d.metrics.accuracy * 100).toFixed(1)),
+                                        borderColor: 'rgb(59, 130, 246)',
+                                        tension: 0.1
+                                    },
+                                    {
+                                        label: 'Precision',
+                                        data: data.map(d => (d.metrics.precision * 100).toFixed(1)),
+                                        borderColor: 'rgb(16, 185, 129)',
+                                        tension: 0.1
+                                    },
+                                    {
+                                        label: 'Recall',
+                                        data: data.map(d => (d.metrics.recall * 100).toFixed(1)),
+                                        borderColor: 'rgb(245, 158, 11)',
+                                        tension: 0.1
+                                    }
+                                ]
+                            },
+                            options: {
+                                responsive: true,
+                                scales: {
+                                    y: {
+                                        beginAtZero: true,
+                                        title: {
+                                            display: true,
+                                            text: 'Score %'
+                                        }
+                                    }
+                                }
+                            }
+                        });
                     },
                     formatDate(timestamp) {
                         if (!timestamp) return ''

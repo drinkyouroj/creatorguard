@@ -6,7 +6,7 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, accuracy_score, precision_score, recall_score, f1_score
 import joblib
 import re
 from collections import Counter
@@ -224,6 +224,119 @@ class SpamDetector:
         except Exception as e:
             print(f"❌ Error marking comment as spam: {e}")
             conn.rollback()
+        finally:
+            conn.close()
+
+    def calculate_metrics(self):
+        """Calculate current model performance metrics."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Get all labeled data
+            cursor.execute("""
+                SELECT c.text, st.is_spam
+                FROM spam_training st
+                JOIN comments c ON c.comment_id = st.comment_id
+                ORDER BY st.trained_at DESC
+                LIMIT 1000
+            """)
+            
+            data = cursor.fetchall()
+            if not data:
+                return None
+                
+            texts, labels = zip(*data)
+            
+            # Get predictions
+            features = self.vectorizer.transform(texts)
+            predictions = self.model.predict(features)
+            
+            # Calculate metrics
+            metrics = {
+                'accuracy': float(accuracy_score(labels, predictions)),
+                'precision': float(precision_score(labels, predictions)),
+                'recall': float(recall_score(labels, predictions)),
+                'f1': float(f1_score(labels, predictions)),
+                'total_samples': len(labels),
+                'spam_ratio': sum(labels) / len(labels),
+                'timestamp': datetime.utcnow().isoformat()
+            }
+            
+            # Save metrics
+            cursor.execute("""
+                INSERT INTO model_metrics (
+                    model_type, metrics, created_at
+                ) VALUES (?, ?, ?)
+            """, ('spam', json.dumps(metrics), metrics['timestamp']))
+            
+            conn.commit()
+            return metrics
+            
+        except Exception as e:
+            print(f"❌ Error calculating metrics: {e}")
+            return None
+        finally:
+            conn.close()
+
+    def get_metrics_history(self, days=30):
+        """Get historical metrics for the past N days."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT metrics, created_at
+                FROM model_metrics
+                WHERE model_type = 'spam'
+                AND created_at >= datetime('now', ?)
+                ORDER BY created_at ASC
+            """, (f'-{days} days',))
+            
+            return [
+                {
+                    'metrics': json.loads(row[0]),
+                    'created_at': row[1]
+                }
+                for row in cursor.fetchall()
+            ]
+            
+        except Exception as e:
+            print(f"❌ Error getting metrics history: {e}")
+            return []
+        finally:
+            conn.close()
+
+    def get_spam_trends(self, days=30):
+        """Get spam trends over time."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT 
+                    date(timestamp) as day,
+                    COUNT(*) as total_comments,
+                    SUM(CASE WHEN is_spam = 1 THEN 1 ELSE 0 END) as spam_comments
+                FROM comments
+                WHERE timestamp >= datetime('now', ?)
+                GROUP BY date(timestamp)
+                ORDER BY day ASC
+            """, (f'-{days} days',))
+            
+            return [
+                {
+                    'date': row[0],
+                    'total': row[1],
+                    'spam': row[2],
+                    'ratio': row[2] / row[1] if row[1] > 0 else 0
+                }
+                for row in cursor.fetchall()
+            ]
+            
+        except Exception as e:
+            print(f"❌ Error getting spam trends: {e}")
+            return []
         finally:
             conn.close()
 
