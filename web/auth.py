@@ -13,21 +13,49 @@ login_manager = LoginManager()
 
 class User(UserMixin):
     def __init__(self, id, username, email, is_admin=False, is_active=False):
-        self.id = id
-        self.username = username
-        self.email = email
-        self.is_admin = is_admin
-        self.is_active = is_active
+        self._id = id
+        self._username = username
+        self._email = email
+        self._is_admin = is_admin
+        self._is_active = is_active
+
+    @property
+    def id(self):
+        return self._id
+
+    @property
+    def username(self):
+        return self._username
+
+    @property
+    def email(self):
+        return self._email
+
+    @property
+    def is_admin(self):
+        return self._is_admin
+
+    @property
+    def is_active(self):
+        return self._is_active
+
+    def get_id(self):
+        return str(self._id)
 
     @staticmethod
     def get(user_id):
+        try:
+            user_id = int(user_id)
+        except (TypeError, ValueError):
+            return None
+
         conn = sqlite3.connect('creatorguard.db')
         cursor = conn.cursor()
         cursor.execute('SELECT id, username, email, is_admin, is_active FROM users WHERE id = ?', (user_id,))
         user = cursor.fetchone()
         conn.close()
         if user:
-            return User(user[0], user[1], user[2], user[3], user[4])
+            return User(user[0], user[1], user[2], bool(user[3]), bool(user[4]))
         return None
 
 def admin_required(f):
