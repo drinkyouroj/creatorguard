@@ -2,10 +2,15 @@ from flask import Flask, render_template, request, redirect, url_for, flash, jso
 from flask_login import login_user, login_required, logout_user, current_user
 import sqlite3
 import os
-from .auth import (
+import sys
+
+# Add the project root directory to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from web.auth import (
     login_manager, User, register_user, verify_user, create_password_reset_token, 
     verify_reset_token, reset_password, get_pending_users, get_all_users, 
-    update_user_status, admin_required
+    update_user_status, admin_required, init_auth_db
 )
 
 app = Flask(__name__)
