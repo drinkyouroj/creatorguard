@@ -114,25 +114,32 @@ class SpamDetector:
 
     def predict_spam(self, text):
         """Predict if text is spam and return probability."""
-        # Extract features
-        features = self.extract_features(text)
-        
-        # Convert text to TF-IDF
-        text_features = self.vectorizer.transform([text]).toarray()
-        
-        # Combine with other features
-        feature_values = np.array(list(features.values())).reshape(1, -1)
-        combined_features = np.hstack((text_features, feature_values))
-        
-        # Make prediction
-        spam_prob = self.model.predict_proba(combined_features)[0][1]
-        is_spam = spam_prob >= 0.7  # Adjustable threshold
-        
-        return {
-            'is_spam': is_spam,
-            'spam_score': float(spam_prob),
-            'spam_features': json.dumps(features)
-        }
+        try:
+            if not self.model or not self.vectorizer:
+                logger.warning("Model not initialized, loading latest model...")
+                self.load_latest_model()
+            
+            # Transform text using vectorizer
+            features = self.vectorizer.transform([text])
+            
+            # Make prediction
+            prediction = self.model.predict(features)[0]
+            probability = self.model.predict_proba(features)[0][1]
+            
+            return {
+                'is_spam': bool(prediction),
+                'probability': float(probability),
+                'features': self.extract_features(text)
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error predicting spam: {str(e)}")
+            # Return safe default
+            return {
+                'is_spam': False,
+                'probability': 0.0,
+                'features': {}
+            }
 
     def train(self, retrain=False):
         """Train the spam detection model using collected data."""
