@@ -1,4 +1,5 @@
 # This file makes the web directory a Python package
+import os
 from flask import Flask
 from flask_login import LoginManager
 
@@ -16,6 +17,9 @@ def create_app():
     # Import and register blueprints
     from . import auth
     from . import views
+    
+    app.register_blueprint(auth.bp)
+    app.register_blueprint(views.bp)
     
     # Initialize database
     from .auth import init_auth_db

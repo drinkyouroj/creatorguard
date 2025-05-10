@@ -1,4 +1,5 @@
-from flask_login import LoginManager, UserMixin
+from flask import Blueprint, flash, redirect, url_for, render_template, request
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3
 import os
@@ -7,6 +8,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 from flask import abort
 
+bp = Blueprint('auth', __name__)
 login_manager = LoginManager()
 
 class User(UserMixin):
@@ -110,6 +112,91 @@ def verify_user(username, password):
             return None, "Account not yet activated"
         return User.get(user[0]), None
     return None, "Invalid credentials"
+
+@bp.route('/login', methods=['GET', 'POST'])
+def login():
+    """Handle user login."""
+    if current_user.is_authenticated:
+        return redirect(url_for('views.index'))
+        
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        user, error = verify_user(username, password)
+        
+        if user:
+            login_user(user)
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for('views.index'))
+        else:
+            flash(error or 'Invalid username or password')
+            
+    return render_template('login.html')
+
+@bp.route('/register', methods=['GET', 'POST'])
+def register():
+    """Handle user registration."""
+    if current_user.is_authenticated:
+        return redirect(url_for('views.index'))
+        
+    if request.method == 'POST':
+        username = request.form.get('username')
+        email = request.form.get('email')
+        password = request.form.get('password')
+        
+        if register_user(username, email, password):
+            flash('Registration successful! Please wait for an administrator to activate your account.')
+            return redirect(url_for('auth.login'))
+        else:
+            flash('Username or email already exists')
+            
+    return render_template('register.html')
+
+@bp.route('/logout')
+@login_required
+def logout():
+    """Handle user logout."""
+    logout_user()
+    return redirect(url_for('auth.login'))
+
+@bp.route('/reset-password', methods=['GET', 'POST'])
+def reset_password_request():
+    """Handle password reset request."""
+    if current_user.is_authenticated:
+        return redirect(url_for('views.index'))
+        
+    if request.method == 'POST':
+        email = request.form.get('email')
+        token = create_password_reset_token(email)
+        
+        if token:
+            # In a production environment, send this via email
+            reset_url = url_for('auth.reset_password_with_token', token=token, _external=True)
+            flash(f'Password reset link (for development): {reset_url}')
+        else:
+            flash('Email address not found')
+            
+    return render_template('reset_password.html')
+
+@bp.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password_with_token(token):
+    """Handle password reset with token."""
+    if current_user.is_authenticated:
+        return redirect(url_for('views.index'))
+        
+    if request.method == 'POST':
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if password != confirm_password:
+            flash('Passwords do not match')
+        elif reset_password(token, password):
+            flash('Password has been reset successfully')
+            return redirect(url_for('auth.login'))
+        else:
+            flash('Invalid or expired reset link')
+            
+    return render_template('reset_password.html', token=token)
 
 def create_password_reset_token(email):
     """Create a password reset token for a user."""
