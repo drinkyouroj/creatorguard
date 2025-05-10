@@ -4,6 +4,7 @@ from .auth import admin_required, User, update_user_status, get_pending_users, g
 import sqlite3
 import os
 import sys
+import json
 
 # Add the project root directory to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -73,14 +74,14 @@ def list_videos():
                 MAX(c.timestamp) as last_comment,
                 COUNT(CASE WHEN c.classification = 'toxic' THEN 1 END) as toxic_count,
                 COUNT(CASE WHEN c.classification = 'questionable' THEN 1 END) as questionable_count,
-                COUNT(CASE WHEN c.mod_action IS NOT NULL THEN 1 END) as flagged_count
+                COUNT(CASE WHEN c.is_spam = 1 THEN 1 END) as spam_count
             FROM videos v
             LEFT JOIN comments c ON v.video_id = c.video_id
             GROUP BY v.video_id, v.title, v.channel_title, v.thumbnail_url
             ORDER BY last_comment DESC
         """)
-        videos = cursor.fetchall()
         
+        videos = cursor.fetchall()
         return jsonify([{
             'video_id': video[0],
             'title': video[1],
@@ -91,10 +92,51 @@ def list_videos():
             'last_comment': video[6],
             'toxic_count': video[7],
             'questionable_count': video[8],
-            'flagged_count': video[9]
+            'spam_count': video[9]
         } for video in videos])
         
-    except sqlite3.Error as e:
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        conn.close()
+
+@bp.route('/api/videos/<video_id>/comments')
+@login_required
+def get_video_comments(video_id):
+    """Get comments for a specific video."""
+    try:
+        conn = sqlite3.connect('creatorguard.db')
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                c.comment_id,
+                c.text,
+                c.author,
+                c.timestamp,
+                c.classification,
+                c.toxicity_score,
+                c.is_spam,
+                c.spam_score,
+                c.spam_features
+            FROM comments c
+            WHERE c.video_id = ?
+            ORDER BY c.timestamp DESC
+        """, (video_id,))
+        
+        comments = cursor.fetchall()
+        return jsonify([{
+            'comment_id': comment[0],
+            'text': comment[1],
+            'author': comment[2],
+            'timestamp': comment[3],
+            'classification': comment[4],
+            'toxicity_score': comment[5],
+            'is_spam': bool(comment[6]),
+            'spam_score': comment[7],
+            'spam_features': json.loads(comment[8]) if comment[8] else None
+        } for comment in comments])
+        
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
         conn.close()
@@ -197,7 +239,8 @@ def mark_comment_spam(comment_id):
         
         if result['status'] == 'error':
             return jsonify({'error': result['error']}), 500
-        
+            
+        # Return success response with status
         return jsonify(result)
         
     except Exception as e:

@@ -102,13 +102,14 @@
                                         <div class="text-xs text-gray-500">
                                             <span v-if="video.toxic_count" class="text-red-600">[[ video.toxic_count ]] toxic</span>
                                             <span v-if="video.questionable_count" class="text-yellow-600">[[ video.questionable_count ]] questionable</span>
+                                            <span v-if="video.spam_count" class="text-orange-600">[[ video.spam_count ]] spam</span>
                                         </div>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">[[ formatDate(video.first_comment) ]]</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">[[ formatDate(video.last_comment) ]]</td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                         <button @click="viewInsights(video.video_id)"
-                                                class="text-blue-600 hover:text-blue-900">
+                                                class="text-blue-600 hover:text-blue-900 mr-3">
                                             View Insights
                                         </button>
                                     </td>
@@ -120,159 +121,192 @@
             </div>
         </div>
 
-        <!-- Insights Modal -->
-        <div v-if="showInsights" class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center">
-            <div class="bg-white rounded-lg max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-                <div class="px-4 py-5 sm:p-6">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-lg font-medium text-gray-900">Video Insights</h3>
-                        <button @click="closeInsights" class="text-gray-400 hover:text-gray-500">
-                            <span class="sr-only">Close</span>
-                            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
+        <!-- Comment Insights Modal -->
+        <div v-if="showInsights" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+            <div class="relative top-20 mx-auto p-5 border w-4/5 shadow-lg rounded-md bg-white">
+                <div class="flex justify-between items-center pb-3">
+                    <h3 class="text-xl font-medium text-gray-900">Video Comments</h3>
+                    <button @click="closeInsights" class="text-gray-400 hover:text-gray-500">
+                        <span class="text-2xl">&times;</span>
+                    </button>
+                </div>
+                
+                <div class="mt-4">
+                    <div class="flex space-x-4 mb-4">
+                        <button 
+                            v-for="filter in ['all', 'spam', 'toxic', 'questionable', 'safe']"
+                            :key="filter"
+                            @click="filterComments(filter)"
+                            :class="{
+                                'px-4 py-2 rounded-md': true,
+                                'bg-blue-600 text-white': currentFilter === filter,
+                                'bg-gray-200 text-gray-700': currentFilter !== filter
+                            }"
+                        >
+                            [[ filter.charAt(0).toUpperCase() + filter.slice(1) ]]
                         </button>
                     </div>
-                    <div v-if="loadingInsights" class="text-center py-4">
-                        <p class="text-gray-500">Loading insights...</p>
-                    </div>
-                    <div v-else>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                            <div class="bg-gray-50 rounded-lg p-4">
-                                <h4 class="text-sm font-medium text-gray-900 mb-2">Comment Classifications</h4>
-                                <ul class="space-y-2">
-                                    <li v-for="(count, type) in insights.classifications" :key="type"
-                                        class="flex justify-between">
-                                        <span class="text-sm text-gray-600">[[ type ]]</span>
-                                        <span class="text-sm font-medium text-gray-900">[[ count ]]</span>
-                                    </li>
-                                </ul>
-                            </div>
-                            <div class="bg-gray-50 rounded-lg p-4">
-                                <h4 class="text-sm font-medium text-gray-900 mb-2">Moderation Actions</h4>
-                                <ul class="space-y-2">
-                                    <li v-for="(count, action) in insights.mod_actions" :key="action"
-                                        class="flex justify-between">
-                                        <span class="text-sm text-gray-600">[[ action ]]</span>
-                                        <span class="text-sm font-medium text-gray-900">[[ count ]]</span>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                        
-                        <h4 class="text-sm font-medium text-gray-900 mb-2">Recent Comments</h4>
-                        <div class="space-y-4">
-                            <div v-for="comment in insights.comments" :key="comment.id"
-                                 class="bg-gray-50 rounded-lg p-4">
-                                <div class="flex justify-between mb-2">
-                                    <span class="text-sm font-medium text-gray-900">[[ comment.author ]]</span>
-                                    <span class="text-xs text-gray-500">[[ formatDate(comment.timestamp) ]]</span>
-                                </div>
-                                <p class="text-sm text-gray-600">[[ comment.text ]]</p>
-                                <div class="mt-2 flex gap-2">
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
-                                          :class="{
-                                              'bg-green-100 text-green-800': comment.classification === 'positive',
-                                              'bg-yellow-100 text-yellow-800': comment.classification === 'neutral',
-                                              'bg-red-100 text-red-800': comment.classification === 'negative'
-                                          }">
-                                        [[ comment.classification ]]
-                                    </span>
-                                    <span v-if="comment.mod_action" 
-                                          class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                        [[ comment.mod_action ]]
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
+                    
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead>
+                                <tr>
+                                    <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Author</th>
+                                    <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Comment</th>
+                                    <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <tr v-for="comment in filteredComments" :key="comment.id">
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="text-sm text-gray-900">[[ comment.author ]]</div>
+                                    </td>
+                                    <td class="px-6 py-4">
+                                        <div class="text-sm text-gray-900">[[ comment.text ]]</div>
+                                        <div v-if="comment.spam_score" class="text-xs text-gray-500 mt-1">
+                                            Spam Score: [[ (comment.spam_score * 100).toFixed(1) ]]%
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span :class="{
+                                            'px-2 inline-flex text-xs leading-5 font-semibold rounded-full': true,
+                                            'bg-red-100 text-red-800': comment.classification === 'toxic',
+                                            'bg-yellow-100 text-yellow-800': comment.classification === 'questionable',
+                                            'bg-orange-100 text-orange-800': comment.is_spam,
+                                            'bg-green-100 text-green-800': comment.classification === 'safe'
+                                        }">
+                                            [[ comment.is_spam ? 'Spam' : comment.classification ]]
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <button 
+                                            @click="markAsSpam(comment.comment_id, !comment.is_spam)"
+                                            :class="{
+                                                'text-sm px-3 py-1 rounded': true,
+                                                'bg-orange-600 text-white hover:bg-orange-700': !comment.is_spam,
+                                                'bg-green-600 text-white hover:bg-green-700': comment.is_spam
+                                            }"
+                                        >
+                                            [[ comment.is_spam ? 'Not Spam' : 'Mark as Spam' ]]
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
         </div>
-    </main>
 
-    <script>
-        const { createApp } = Vue
+        <script>
+            const { createApp } = Vue
 
-        createApp({
-            delimiters: ['[[', ']]'],
-            data() {
-                return {
-                    videos: [],
-                    loading: true,
-                    importing: false,
-                    newVideoId: '',
-                    importError: '',
-                    showInsights: false,
-                    loadingInsights: false,
-                    insights: null
-                }
-            },
-            mounted() {
-                this.fetchVideos()
-            },
-            methods: {
-                async fetchVideos() {
-                    try {
-                        this.loading = true
-                        const response = await axios.get('/api/videos')
-                        this.videos = response.data
-                    } catch (error) {
-                        console.error('Error fetching videos:', error)
-                    } finally {
-                        this.loading = false
+            createApp({
+                delimiters: ['[[', ']]'],
+                data() {
+                    return {
+                        videos: [],
+                        loading: true,
+                        importing: false,
+                        newVideoId: '',
+                        importError: '',
+                        showInsights: false,
+                        currentVideoId: null,
+                        comments: [],
+                        currentFilter: 'all'
                     }
                 },
-                async importVideo() {
-                    if (!this.newVideoId) return
-                    
-                    try {
-                        this.importing = true
-                        this.importError = ''
-                        
-                        const formData = new FormData()
-                        formData.append('video_id', this.newVideoId)
-                        
-                        await axios.post('/api/videos/import', formData)
-                        this.newVideoId = ''
-                        await this.fetchVideos()
-                    } catch (error) {
-                        console.error('Error importing video:', error)
-                        this.importError = error.response?.data?.error || 'Failed to import video'
-                    } finally {
-                        this.importing = false
+                computed: {
+                    filteredComments() {
+                        if (this.currentFilter === 'all') return this.comments;
+                        if (this.currentFilter === 'spam') return this.comments.filter(c => c.is_spam);
+                        return this.comments.filter(c => c.classification === this.currentFilter);
                     }
                 },
-                async viewInsights(videoId) {
-                    try {
-                        this.showInsights = true
-                        this.loadingInsights = true
-                        
-                        const [insightsResponse, commentsResponse] = await Promise.all([
-                            axios.get(`/api/insights/${videoId}`),
-                            axios.get(`/api/comments/${videoId}`)
-                        ])
-                        
-                        this.insights = {
-                            ...insightsResponse.data,
-                            comments: commentsResponse.data.comments
+                mounted() {
+                    this.fetchVideos()
+                },
+                methods: {
+                    async fetchVideos() {
+                        try {
+                            this.loading = true
+                            const response = await axios.get('/api/videos')
+                            this.videos = response.data
+                        } catch (error) {
+                            console.error('Error fetching videos:', error)
+                        } finally {
+                            this.loading = false
                         }
-                    } catch (error) {
-                        console.error('Error loading insights:', error)
-                    } finally {
-                        this.loadingInsights = false
+                    },
+                    async importVideo() {
+                        if (!this.newVideoId) return
+                        
+                        try {
+                            this.importing = true
+                            this.importError = ''
+                            
+                            const formData = new FormData()
+                            formData.append('video_id', this.newVideoId)
+                            
+                            await axios.post('/api/videos/import', formData)
+                            this.newVideoId = ''
+                            await this.fetchVideos()
+                        } catch (error) {
+                            console.error('Error importing video:', error)
+                            this.importError = error.response?.data?.error || 'Failed to import video'
+                        } finally {
+                            this.importing = false
+                        }
+                    },
+                    async viewInsights(videoId) {
+                        try {
+                            this.showInsights = true
+                            this.currentVideoId = videoId
+                            const response = await axios.get(`/api/videos/${videoId}/comments`)
+                            this.comments = response.data
+                        } catch (error) {
+                            console.error('Error loading insights:', error)
+                        }
+                    },
+                    closeInsights() {
+                        this.showInsights = false
+                        this.currentVideoId = null
+                        this.comments = []
+                        this.currentFilter = 'all'
+                    },
+                    filterComments(filter) {
+                        this.currentFilter = filter
+                    },
+                    async markAsSpam(commentId, isSpam) {
+                        try {
+                            const response = await axios.post(`/api/comments/${commentId}/mark_spam`, {
+                                is_spam: isSpam
+                            })
+                            const data = await response.json()
+                            if (response.ok) {
+                                // Refresh comments to show updated status
+                                await this.viewInsights(this.currentVideoId)
+                                
+                                // Show notification if model was retrained
+                                if (data.status === 'retrained') {
+                                    alert('Spam detection model has been retrained with new data!')
+                                }
+                            } else {
+                                alert(data.error || 'Failed to update spam status')
+                            }
+                        } catch (error) {
+                            console.error('Error marking as spam:', error)
+                            alert('Failed to update spam status')
+                        }
+                    },
+                    formatDate(timestamp) {
+                        if (!timestamp) return ''
+                        return new Date(timestamp).toLocaleString()
                     }
-                },
-                closeInsights() {
-                    this.showInsights = false
-                    this.insights = null
-                },
-                formatDate(timestamp) {
-                    if (!timestamp) return ''
-                    return new Date(timestamp).toLocaleString()
                 }
-            }
-        }).mount('#app')
-    </script>
+            }).mount('#app')
+        </script>
+    </main>
 </body>
 </html>
