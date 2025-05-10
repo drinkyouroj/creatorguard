@@ -1,24 +1,42 @@
+# Python virtual environment
+.venv/
+venv/
+env/
+
+# SQLite database
+*.db
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Virtual environment
-.venv/
-env/
-venv/
-
-# Environment variables
+# Environment files
 .env
-
-# SQLite database
-*.db
-
-# VS Code
-.vscode/
-
-# Mac system files
-.DS_Store
+*.env
 
 # Logs
+logs/
 *.log
+
+# IDE-specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Personal data and notes (optional)
+personal_notes/
+private_data/
