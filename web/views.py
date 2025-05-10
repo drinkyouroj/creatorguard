@@ -9,7 +9,8 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from comments.fetch_comments import YouTubeCommentFetcher
-from gpt.comment_insights import CommentAnalyzer
+from comments.analyze_comments import CommentAnalyzer
+from gpt.comment_insights import CommentAnalyzer as InsightAnalyzer
 
 bp = Blueprint('views', __name__)
 
@@ -54,26 +55,6 @@ def toggle_user_status(user_id):
             flash(f'User admin status {"granted" if not user.is_admin else "revoked"} successfully')
     return redirect(url_for('views.admin_dashboard'))
 
-# API Routes
-@bp.route('/api/videos/import', methods=['POST'])
-@login_required
-def import_video():
-    """Import comments from a new YouTube video."""
-    video_id = request.form.get('video_id')
-    if not video_id:
-        return jsonify({'error': 'Video ID is required'}), 400
-    
-    try:
-        fetcher = YouTubeCommentFetcher()
-        comment_count = fetcher.fetch_comments(video_id)
-        return jsonify({
-            'success': True,
-            'message': f'Successfully imported {comment_count} comments',
-            'video_id': video_id
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
 @bp.route('/api/videos')
 @login_required
 def list_videos():
@@ -85,7 +66,10 @@ def list_videos():
             SELECT DISTINCT video_id, 
                    COUNT(*) as comment_count,
                    MIN(timestamp) as first_comment,
-                   MAX(timestamp) as last_comment
+                   MAX(timestamp) as last_comment,
+                   COUNT(CASE WHEN classification = 'toxic' THEN 1 END) as toxic_count,
+                   COUNT(CASE WHEN classification = 'questionable' THEN 1 END) as questionable_count,
+                   COUNT(CASE WHEN mod_action IS NOT NULL THEN 1 END) as flagged_count
             FROM comments 
             GROUP BY video_id
             ORDER BY last_comment DESC
@@ -96,7 +80,10 @@ def list_videos():
             'video_id': video[0],
             'comment_count': video[1],
             'first_comment': video[2],
-            'last_comment': video[3]
+            'last_comment': video[3],
+            'toxic_count': video[4],
+            'questionable_count': video[5],
+            'flagged_count': video[6]
         } for video in videos])
         
     except sqlite3.Error as e:
@@ -110,7 +97,7 @@ def get_insights(video_id):
     """Get insights for a specific video."""
     try:
         analyzer = CommentAnalyzer()
-        stats = analyzer.get_comment_stats(video_id)
+        stats = analyzer.get_analysis_summary(video_id)
         return jsonify(stats)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -133,7 +120,7 @@ def get_comments(video_id):
         
         # Get paginated comments
         cursor.execute("""
-            SELECT id, author, text, timestamp, classification, mod_action
+            SELECT id, author, text, timestamp, classification, mod_action, emotional_score
             FROM comments 
             WHERE video_id = ?
             ORDER BY timestamp DESC
@@ -146,7 +133,8 @@ def get_comments(video_id):
             'text': row[2],
             'timestamp': row[3],
             'classification': row[4],
-            'mod_action': row[5]
+            'mod_action': row[5],
+            'emotional_score': row[6]
         } for row in cursor.fetchall()]
         
         return jsonify({
@@ -161,3 +149,29 @@ def get_comments(video_id):
         return jsonify({'error': str(e)}), 500
     finally:
         conn.close()
+
+@bp.route('/api/videos/import', methods=['POST'])
+@login_required
+def import_video():
+    """Import comments from a new YouTube video."""
+    video_id = request.form.get('video_id')
+    if not video_id:
+        return jsonify({'error': 'Video ID is required'}), 400
+    
+    try:
+        # Import comments
+        fetcher = YouTubeCommentFetcher()
+        comment_count = fetcher.fetch_comments(video_id)
+        
+        # Analyze comments
+        analyzer = CommentAnalyzer()
+        analysis = analyzer.analyze_comments(video_id)
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully imported and analyzed {comment_count} comments',
+            'video_id': video_id,
+            'analysis': analysis
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

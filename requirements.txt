@@ -1,4 +1,4 @@
-google-api-python-client==2.97.0  # YouTube Data API
+google-api-python-client==2.86.0  # YouTube Data API
 openai>=1.0.0
 python-dotenv==1.0.0
 requests==2.31.0
@@ -6,3 +6,10 @@ SQLAlchemy==2.0.19  # Optional, for more advanced DB interactions
 pytest==7.3.1  # For testing
 httpx==0.24.1  # HTTP client for OpenAI
 typing_extensions==4.7.1
+flask==2.3.2
+flask-login==0.6.2
+werkzeug==2.3.4
+nltk==3.8.1
+transformers==4.29.2
+torch==2.0.1
+numpy==1.24.3
