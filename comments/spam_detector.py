@@ -2,6 +2,7 @@ import os
 import sqlite3
 import json
 from datetime import datetime
+import time
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
@@ -272,15 +273,16 @@ class SpamDetector:
                 WHERE trained_at IS NULL
             """)
             
-            # Save model version
+            # Save model version with a timestamp-based version number
+            version = f"v{int(time.time())}"
             metrics = self.calculate_metrics()
             cursor.execute("""
-                INSERT INTO model_versions (model_type, created_at)
-                VALUES ('spam', CURRENT_TIMESTAMP)
-            """)
+                INSERT INTO model_versions (model_type, version, metrics, created_at)
+                VALUES ('spam', ?, ?, CURRENT_TIMESTAMP)
+            """, (version, json.dumps(metrics) if metrics else '{}'))
             
             conn.commit()
-            logger.info("✅ Model training complete")
+            logger.info("✅ Model training complete with version " + version)
             return metrics
             
         except Exception as e:
