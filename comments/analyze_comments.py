@@ -67,10 +67,10 @@ class CommentAnalyzer:
                 'toxicity_score': toxicity_scores.get('toxicity', 0),
                 'toxicity_details': json.dumps(toxicity_scores),
                 'sentiment': sentiment,
-                'sentiment_scores': sentiment_scores,
+                'sentiment_scores': json.dumps(sentiment_scores),
                 'spam_score': spam_result['spam_score'],
                 'is_spam': spam_result['is_spam'],
-                'spam_features': spam_result['spam_features']
+                'spam_features': json.dumps(spam_result['spam_features'])
             }
             
         except Exception as e:
