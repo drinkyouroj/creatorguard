@@ -8,11 +8,11 @@ from collections import Counter
 import re
 import sys
 import json
-from .spam_detector import SpamDetector
+from comments.spam_detector import SpamDetector
 
 # Add project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.logger import setup_logger, log_error, log_warning, log_info
+from comments.utils.logger import setup_logger, log_error, log_warning, log_info
 
 # Download required NLTK data
 nltk.download('vader_lexicon', quiet=True)
