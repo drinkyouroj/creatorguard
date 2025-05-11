@@ -373,38 +373,6 @@ class SpamDetector:
     def calculate_metrics(self):
         """Calculate current model metrics."""
         conn = None
-        try:
-            if not hasattr(self, 'model') or not hasattr(self, 'vectorizer'):
-                logger.info("🆕 Initializing new spam detection model")
-                self.model = RandomForestClassifier()
-                self.vectorizer = TfidfVectorizer()
-                logger.warning("No metrics available - model not initialized")
-                return None
-
-            # Get all training data
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT text, is_spam
-                FROM spam_training
-                WHERE trained_at IS NOT NULL
-            """)
-            results = cursor.fetchall()
-
-            if not results:
-                logger.warning("No training data available yet")
-                return {
-                    'accuracy': None,
-                    'top_features': {},
-                    'total_samples': 0,
-                    'spam_samples': 0,
-                    'ham_samples': 0,
-                    'model_status': 'no_data'
-                }
-
-            texts = [r[0] for r in results]
-            labels = [r[1] for r in results]
-
             # Check if model is trained
             if not hasattr(self.model, 'estimators_'):
                 logger.warning("Model not trained yet")
