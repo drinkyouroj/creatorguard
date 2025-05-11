@@ -236,16 +236,17 @@ class SpamDetector:
             if untrained_count >= 10:
                 self.train()
             
-            return True
-            
             logger.info(f"✅ Marked comment {comment_id} as {'spam' if is_spam else 'not spam'}")
+            return True
             
         except Exception as e:
             logger.error(f"❌ Error marking comment as spam: {e}", exc_info=True)
             if conn:
                 conn.rollback()
             return False
-            conn.close()
+        finally:
+            if conn:
+                conn.close()
 
     def calculate_metrics(self):
         """Calculate current model performance metrics."""
