@@ -656,20 +656,28 @@
                     },
                     async markAsSpam(commentId, isSpam) {
                         try {
+                            // Log the request details for debugging
+                            console.log(`Marking comment ${commentId} as spam=${isSpam}`);
+                            
+                            // Make sure we're sending a boolean
+                            const boolIsSpam = Boolean(isSpam);
+                            
                             const response = await axios.post(`/api/comments/${commentId}/mark_spam`, {
-                                is_spam: isSpam
+                                is_spam: boolIsSpam
                             });
                             
+                            console.log('Response received:', response.data);
+                            
                             // The backend returns status: 'success' or 'error', not success: true
-                            if (response.data.status === 'success') {
+                            if (response.data.status === 'success' || response.data.success === true) {
                                 // Show notification
-                                this.showNotification(isSpam ? 'Marked as spam' : 'Marked as not spam', 'success');
+                                this.showNotification(boolIsSpam ? 'Marked as spam' : 'Marked as not spam', 'success');
                                 
                                 // Refresh comments to show updated status
                                 await this.refreshComments();
                                 
                                 // Update spam metrics
-                                this.fetchSpamMetrics(this.currentVideoId);
+                                await this.fetchSpamMetrics(this.currentVideoId);
                                 
                                 // Show notification if model was retrained
                                 if (response.data.retrained) {
@@ -679,8 +687,22 @@
                                 this.showNotification(response.data.error || 'Failed to update', 'error');
                             }
                         } catch (error) {
+                            // More detailed error logging
                             console.error('Error marking comment as spam:', error);
-                            this.showNotification(error.response?.data?.error || 'Error marking comment as spam', 'error');
+                            console.error('Error details:', {
+                                message: error.message,
+                                response: error.response,
+                                request: error.request
+                            });
+                            
+                            let errorMessage = 'Error marking comment as spam';
+                            if (error.response && error.response.data && error.response.data.error) {
+                                errorMessage = error.response.data.error;
+                            } else if (error.message) {
+                                errorMessage = error.message;
+                            }
+                            
+                            this.showNotification(errorMessage, 'error');
                         }
                     },
                     toggleSelectAll() {
@@ -713,14 +735,23 @@
                         if (this.selectedComments.length === 0) return;
                         
                         try {
+                            // Log the request details for debugging
+                            console.log(`Marking ${this.selectedComments.length} comments as spam=${isSpam}`);
+                            console.log('Comment IDs:', this.selectedComments);
+                            
+                            // Make sure we're sending a boolean
+                            const boolIsSpam = Boolean(isSpam);
+                            
                             const response = await axios.post('/api/comments/mark_spam_bulk', {
                                 comment_ids: this.selectedComments,
-                                is_spam: isSpam
+                                is_spam: boolIsSpam
                             });
                             
+                            console.log('Bulk response received:', response.data);
+                            
                             // The backend returns status: 'success' or 'error', not success: true
-                            if (response.data.status === 'success') {
-                                this.showNotification(`${this.selectedComments.length} comments marked as ${isSpam ? 'spam' : 'not spam'}`, 'success');
+                            if (response.data.status === 'success' || response.data.success === true) {
+                                this.showNotification(`${this.selectedComments.length} comments marked as ${boolIsSpam ? 'spam' : 'not spam'}`, 'success');
                                 
                                 // Clear selection
                                 this.selectedComments = [];
@@ -730,7 +761,7 @@
                                 await this.refreshComments();
                                 
                                 // Update spam metrics
-                                this.fetchSpamMetrics(this.currentVideoId);
+                                await this.fetchSpamMetrics(this.currentVideoId);
                                 
                                 // Show notification if model was retrained
                                 if (response.data.retrained) {
@@ -740,8 +771,22 @@
                                 this.showNotification(response.data.error || 'Failed to update comments', 'error');
                             }
                         } catch (error) {
+                            // More detailed error logging
                             console.error('Error marking comments in bulk:', error);
-                            this.showNotification(error.response?.data?.error || 'Error marking comments', 'error');
+                            console.error('Bulk error details:', {
+                                message: error.message,
+                                response: error.response,
+                                request: error.request
+                            });
+                            
+                            let errorMessage = 'Error marking comments';
+                            if (error.response && error.response.data && error.response.data.error) {
+                                errorMessage = error.response.data.error;
+                            } else if (error.message) {
+                                errorMessage = error.message;
+                            }
+                            
+                            this.showNotification(errorMessage, 'error');
                         }
                     },
                     async viewMetrics() {
