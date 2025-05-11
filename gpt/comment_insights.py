@@ -327,7 +327,16 @@ def main():
         gpt_summary = analyzer.generate_comprehensive_summary(stats)
         print("\n--- GPT Summary ---")
         print(gpt_summary)
-        
+
+        # Save GPT summary to file
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        insights_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../insights')
+        os.makedirs(insights_dir, exist_ok=True)
+        summary_path = os.path.join(insights_dir, f"gpt_summary_{video_id}_{timestamp}.md")
+        with open(summary_path, 'w', encoding='utf-8') as f:
+            f.write(gpt_summary)
+        print(f"\n[Saved GPT summary to {summary_path}]")
+
         # Save insights
         analyzer.save_insights(video_id, summary)
         

@@ -42,6 +42,10 @@ build/
 personal_notes/
 private_data/
 
+# data models
+models/*.joblib
+
 # Insights and comment analysis
 insights/comment_insights*.md
+insights/gpt_summary*.md
 comments/comments.json
