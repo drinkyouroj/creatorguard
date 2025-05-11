@@ -343,10 +343,12 @@ def mark_comment_spam(comment_id):
         
         if result['status'] == 'error':
             logger.error(f"[SPAM] Failed to mark comment as spam: {result['error']}")
-            return jsonify({'error': result['error']}), 500
+            return jsonify({'status': 'error', 'error': result['error']}), 500
             
         # Return success response with status
         logger.info(f"[SPAM] Successfully marked comment {comment_id} as spam={is_spam}")
+        # Add success field for backward compatibility with frontend
+        result['success'] = True
         return jsonify(result)
         
     except Exception as e:
@@ -369,8 +371,10 @@ def mark_comments_spam_bulk():
         result = analyzer.mark_comments_as_spam(comment_ids, is_spam)
         
         if result['status'] == 'error':
-            return jsonify({'error': result['error']}), 500
+            return jsonify({'status': 'error', 'error': result['error']}), 500
             
+        # Add success field for backward compatibility with frontend
+        result['success'] = True
         return jsonify(result)
         
     except Exception as e:

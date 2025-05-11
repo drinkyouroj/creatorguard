@@ -660,23 +660,27 @@
                                 is_spam: isSpam
                             });
                             
-                            if (response.data.success) {
+                            // The backend returns status: 'success' or 'error', not success: true
+                            if (response.data.status === 'success') {
                                 // Show notification
-                                this.$nextTick(() => {
-                                    this.showNotification(isSpam ? 'Marked as spam' : 'Marked as not spam', 'success');
-                                });
+                                this.showNotification(isSpam ? 'Marked as spam' : 'Marked as not spam', 'success');
                                 
                                 // Refresh comments to show updated status
                                 await this.refreshComments();
                                 
                                 // Update spam metrics
                                 this.fetchSpamMetrics(this.currentVideoId);
+                                
+                                // Show notification if model was retrained
+                                if (response.data.retrained) {
+                                    this.showNotification('Spam detection model has been retrained with new data!', 'info');
+                                }
                             } else {
                                 this.showNotification(response.data.error || 'Failed to update', 'error');
                             }
                         } catch (error) {
                             console.error('Error marking comment as spam:', error);
-                            this.showNotification('Error marking comment as spam', 'error');
+                            this.showNotification(error.response?.data?.error || 'Error marking comment as spam', 'error');
                         }
                     },
                     toggleSelectAll() {
@@ -693,7 +697,7 @@
                     },
                     
                     async markSelectedAsSpam(isSpam) {
-                        if (!this.selectedComments.length) return;
+                        if (this.selectedComments.length === 0) return;
                         
                         try {
                             const response = await axios.post('/api/comments/mark_spam_bulk', {
@@ -701,27 +705,30 @@
                                 is_spam: isSpam
                             });
                             
-                            if (response.data.status === 'error') {
-                                throw new Error(response.data.error);
-                            }
-                            
-                            // Refresh comments
-                            await this.viewInsights(this.currentVideoId);
-                            
-                            // Clear selection
-                            this.clearSelection();
-                            
-                            // Show results
-                            const {processed, total} = response.data;
-                            alert(`Successfully marked ${processed} out of ${total} comments`);
-                            
-                            // Show retraining notification
-                            if (response.data.status === 'retrained') {
-                                alert('Spam detection model has been retrained with new data!');
+                            // The backend returns status: 'success' or 'error', not success: true
+                            if (response.data.status === 'success') {
+                                this.showNotification(`${this.selectedComments.length} comments marked as ${isSpam ? 'spam' : 'not spam'}`, 'success');
+                                
+                                // Clear selection
+                                this.selectedComments = [];
+                                this.selectAll = false;
+                                
+                                // Refresh comments
+                                await this.refreshComments();
+                                
+                                // Update spam metrics
+                                this.fetchSpamMetrics(this.currentVideoId);
+                                
+                                // Show notification if model was retrained
+                                if (response.data.retrained) {
+                                    this.showNotification('Spam detection model has been retrained with new data!', 'info');
+                                }
+                            } else {
+                                this.showNotification(response.data.error || 'Failed to update comments', 'error');
                             }
                         } catch (error) {
-                            console.error('Error marking comments as spam:', error);
-                            alert(error.response?.data?.error || 'Failed to update spam status');
+                            console.error('Error marking comments in bulk:', error);
+                            this.showNotification(error.response?.data?.error || 'Error marking comments', 'error');
                         }
                     },
                     async viewMetrics() {
