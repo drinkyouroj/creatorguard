@@ -39,36 +39,62 @@ class SpamDetector:
         self.load_latest_model()
 
     def extract_features(self, text):
-        """Extract spam-related features from text."""
+        """Extract features from text for spam detection."""
+        text_lower = text.lower()
+        words = text_lower.split()
+        
+        # Basic features
         features = {
-            'text_length': len(text),
-            'word_count': len(text.split()),
-            'uppercase_ratio': sum(1 for c in text if c.isupper()) / len(text) if text else 0,
-            'url_count': len(re.findall(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', text)),
-            'mention_count': len(re.findall(r'@\w+', text)),
-            'hashtag_count': len(re.findall(r'#\w+', text)),
-            'emoji_count': len(re.findall(r'[\U0001F300-\U0001F9FF]', text)),
+            'length': len(text),
+            'word_count': len(words),
+            'avg_word_length': sum(len(w) for w in words) / max(len(words), 1),
+            'capitals_ratio': sum(1 for c in text if c.isupper()) / max(len(text), 1),
+            'digits_ratio': sum(1 for c in text if c.isdigit()) / max(len(text), 1),
+            'punctuation_ratio': sum(1 for c in text if c in string.punctuation) / max(len(text), 1),
             'exclamation_count': text.count('!'),
             'question_count': text.count('?'),
-            'has_phone': 1 if re.search(r'\d{3}[-.]?\d{3}[-.]?\d{4}', text) else 0,
+            'url_count': sum(1 for w in words if 'http' in w or 'www.' in w),
             'has_email': 1 if re.search(r'[^@]+@[^@]+\.[^@]+', text) else 0,
             'spam_word_ratio': self._calculate_spam_word_ratio(text)
         }
         return features
 
     def _calculate_spam_word_ratio(self, text):
-        """Calculate ratio of potential spam words in text."""
-        spam_indicators = {
-            'free', 'win', 'winner', 'won', 'prize', 'money', 'cash', 'gift', 
-            'click', 'subscribe', 'offer', 'limited', 'hurry', 'discount', 'deal',
-            'guarantee', 'instant', 'now', 'urgent', 'verify', 'verified', 'check',
-            'congratulations', 'selected', 'lottery', 'promotion'
-        }
+        """Calculate ratio of spam words in text."""
+        # Expanded list of spam-related words
+        spam_words = [
+            # Financial terms
+            'free', 'win', 'winner', 'prize', 'money', 'cash', 'credit', 'buy',
+            'discount', 'offer', 'limited', 'deal', 'cheap', 'guarantee', 'earn',
+            'income', 'profit', 'investment', 'roi', 'return', 'dollars', 'euros',
+            # Crypto terms
+            'crypto', 'bitcoin', 'btc', 'eth', 'ethereum', 'token', 'ico', 'mining',
+            'wallet', 'blockchain', 'altcoin', 'binance', 'coinbase', 'exchange',
+            # Marketing terms
+            'click', 'subscribe', 'link', 'join', 'urgent', 'now', 'amazing',
+            'opportunity', 'exclusive', 'limited time', 'act now', 'don\'t miss',
+            'best', 'incredible', 'revolutionary', 'breakthrough', 'miracle',
+            # Contact/Action terms
+            'call', 'contact', 'email', 'phone', 'visit', 'website', 'dm', 'pm',
+            'message', 'telegram', 'whatsapp', 'signal', 'follow', 'signup',
+            # Suspicious domains
+            'bit.ly', 'tinyurl', 'goo.gl', 'ow.ly', 't.co', 'is.gd'
+        ]
         
-        words = set(word.lower() for word in word_tokenize(text))
-        if not words:
-            return 0
-        return len(words.intersection(spam_indicators)) / len(words)
+        text_lower = text.lower()
+        words = text_lower.split()
+        
+        # Count exact matches
+        exact_matches = sum(1 for word in words if word in spam_words)
+        
+        # Count partial matches (for phrases like "limited time offer")
+        partial_matches = sum(1 for spam_word in spam_words if spam_word in text_lower)
+        
+        # Calculate ratio based on both exact and partial matches
+        total_matches = exact_matches + partial_matches
+        ratio = total_matches / (len(words) + 1)  # +1 to avoid division by zero
+        
+        return min(ratio, 1.0)  # Cap at 1.0
 
     def load_latest_model(self):
         """Load existing model or initialize a new one."""
