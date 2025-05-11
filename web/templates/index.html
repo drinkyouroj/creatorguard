@@ -696,6 +696,19 @@
                         this.selectAll = false;
                     },
                     
+                    async refreshComments() {
+                        try {
+                            const response = await axios.get(`/api/videos/${this.currentVideoId}/comments`);
+                            this.comments = response.data;
+                            this.updateFilterCounts();
+                            return true;
+                        } catch (error) {
+                            console.error('Error refreshing comments:', error);
+                            this.showNotification('Failed to refresh comments', 'error');
+                            return false;
+                        }
+                    },
+                    
                     async markSelectedAsSpam(isSpam) {
                         if (this.selectedComments.length === 0) return;
                         
