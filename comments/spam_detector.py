@@ -172,30 +172,40 @@ class SpamDetector:
     def predict_spam(self, text):
         """Predict if text is spam and return probability."""
         try:
-            if not self.model or not self.vectorizer:
-                logger.warning("Model not initialized, loading latest model...")
-                self.load_latest_model()
-            
-            # Transform text using vectorizer
-            features = self.vectorizer.transform([text])
-            
-            # Make prediction
+            # Check if model is trained
+            if not hasattr(self.model, 'estimators_'):
+                logger.warning("Model not trained yet, returning default prediction")
+                return {
+                    'is_spam': False,
+                    'confidence': 0.5,
+                    'spam_score': 0.5
+                }
+
+            # Transform text to feature vector
+            try:
+                features = self.vectorizer.transform([text])
+            except Exception as e:
+                logger.error(f"❌ Error transforming text: {str(e)}")
+                # Retrain the model to update the vectorizer
+                self.train(retrain=True)
+                features = self.vectorizer.transform([text])
+
+            # Get prediction
             prediction = self.model.predict(features)[0]
-            probability = self.model.predict_proba(features)[0][1]
+            confidence = np.max(self.model.predict_proba(features))
             
             return {
                 'is_spam': bool(prediction),
-                'probability': float(probability),
-                'features': self.extract_features(text)
+                'confidence': float(confidence),
+                'spam_score': float(confidence) if prediction else 1.0 - float(confidence)
             }
             
         except Exception as e:
             logger.error(f"❌ Error predicting spam: {str(e)}")
-            # Return safe default
             return {
                 'is_spam': False,
-                'probability': 0.0,
-                'features': {}
+                'confidence': 0.5,
+                'spam_score': 0.5
             }
 
     def train(self, retrain=False):

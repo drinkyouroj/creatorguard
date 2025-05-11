@@ -247,20 +247,18 @@ class CommentAnalyzer:
             conn.close()
             
             # Retrain if we have enough new samples
+            retrain_status = None
             if new_samples >= 10:
                 metrics = self.spam_detector.train()
-                return {
-                    'status': 'retrained',
-                    'processed': processed,
-                    'total': len(comment_ids),
-                    'metrics': metrics
-                }
-            
+                retrain_status = 'Model retrained with new samples'
+                
             return {
-                'status': 'marked',
+                'status': 'success',
                 'processed': processed,
-                'total': len(comment_ids)
+                'total': len(comment_ids),
+                'retrain_status': retrain_status
             }
+
             
         except Exception as e:
             log_error(self.logger, e, f"Failed to mark comments as spam")

@@ -163,7 +163,7 @@ def get_insights(video_id):
 @bp.route('/api/metrics/spam', methods=['GET'])
 @login_required
 def get_spam_metrics():
-    """Get spam detection metrics and trends."""
+    """Get spam detection metrics."""
     try:
         logger.info("[METRICS] Getting spam detection metrics")
         analyzer = CommentAnalyzer()
@@ -351,38 +351,3 @@ def mark_comments_spam_bulk():
         logger.error(f"Failed to mark comments as spam: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@bp.route('/api/metrics/spam', methods=['GET'])
-@login_required
-def get_spam_metrics():
-    """Get spam detection metrics and trends."""
-    try:
-        days = request.args.get('days', default=30, type=int)
-        if days <= 0 or days > 365:
-            return jsonify({'error': 'Days must be between 1 and 365'}), 400
-            
-        detector = SpamDetector()
-        
-        # Get current metrics
-        current_metrics = detector.calculate_metrics()
-        if current_metrics is None:
-            logger.warning("No metrics data available yet - model may need training")
-            return jsonify({
-                'error': 'No metrics available yet. Try marking some comments as spam to train the model.',
-                'needs_training': True
-            }), 404
-        
-        # Get historical metrics
-        metrics_history = detector.get_metrics_history(days)
-        
-        # Get spam trends
-        trends = detector.get_spam_trends(days)
-        
-        return jsonify({
-            'current': current_metrics,
-            'history': metrics_history,
-            'trends': trends
-        })
-        
-    except Exception as e:
-        logger.error(f"Failed to get spam metrics: {str(e)}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
