@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS comments (
     is_spam BOOLEAN,
     spam_features TEXT,  -- JSON field storing extracted features
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (video_id) REFERENCES videos (video_id),
     FOREIGN KEY (parent_id) REFERENCES comments (comment_id)
 );
