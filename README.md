@@ -3,6 +3,8 @@
 
 CreatorGuard is a lightweight, local-first tool designed to help creators process, moderate, and respond to comment streams — especially on YouTube — without sacrificing emotional well-being. It can also track personal reflections and content development workflows, making it a full emotional OS for creators.
 
+---
+
 ## 🎯 Goals
 
 - Protect creators' mental health by filtering harmful or overwhelming comments
@@ -10,6 +12,8 @@ CreatorGuard is a lightweight, local-first tool designed to help creators proces
 - Suggest emotionally-safe responses
 - Track emotional state and creator reflections alongside comment engagement
 - Log all moderation decisions and emotional insights in a searchable SQLite database
+
+---
 
 ## 🔧 Features (MVP)
 
@@ -19,21 +23,25 @@ CreatorGuard is a lightweight, local-first tool designed to help creators proces
 - 📊 Summary stats on audience tone
 - 📓 Optional journaling/emotional log integration
 
+---
+
 ## 🗃️ Folder Structure
 
 ```
 creatorguard/
 ├── db/
-│   ├── schema.sql       # SQLite schema definition
-│   └── init_db.py       # DB initializer script
-├── comments/            # Raw or cleaned comment dumps
-├── gpt/                 # GPT logic for interpretation & reply generation
-├── personal/            # Optional: personal mood/journal logs
-├── creatorguard.db      # SQLite database (auto-created)
-├── .env                 # API keys and configuration
-├── requirements.txt     # Python dependencies
+│   ├── schema.sql           # SQLite schema definition
+│   └── init_db.py           # DB initializer script
+├── comments/                # Raw or cleaned comment dumps
+├── gpt/                     # GPT logic for interpretation & reply generation
+├── personal/                # Optional: personal mood/journal logs
+├── creatorguard.db          # SQLite database (auto-created)
+├── .env.example             # Template for API keys
+├── requirements.txt
 └── README.md
 ```
+
+---
 
 ## 🚀 Getting Started
 
@@ -46,7 +54,7 @@ cd creatorguard
 ### 2. Create a Virtual Environment
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 ```
 
 ### 3. Install Dependencies
@@ -59,28 +67,41 @@ Copy `.env.example` to `.env` and fill in your API keys:
 ```bash
 cp .env.example .env
 ```
-You'll need:
+
+You’ll need:
 - OpenAI API key
-- YouTube Data API key (optional)
+- (Coming soon) YouTube Data API key
 
 ### 5. Initialize the Database
 ```bash
 python db/init_db.py
 ```
 
+---
+
 ## 📍 Upcoming Features
-- [x] GPT-powered comment moderation
-- [ ] Personalized tone engine using your own writing
-- [ ] Live chatbot mod (Phase 2)
-- [ ] Personal journal and mood tracking (Phase 2)
-- [ ] Content idea log and reflection system
+
+- ✅ GPT-powered comment moderation
+- 🧠 Personalized tone engine using your own writing
+- 💬 Live chatbot mod (Phase 2)
+- ✍️ Personal journal and mood tracking (Phase 2)
+- 📚 Content idea log and reflection system
+
+---
 
 ## 🔐 Privacy First
+
 This system is built to run locally, respecting your emotional boundaries and keeping your data private unless explicitly shared or deployed.
 
+---
+
 ## 🤝 License
+
 MIT License — open to contribution and adaptation for other creators.
 
+---
+
 ## 🙌 Acknowledgements
-Inspired by the need to stay emotionally grounded in an overwhelming digital world.
-Built using OpenAI and SQLite.
+
+Inspired by the need to stay emotionally grounded in an overwhelming digital world.  
+Built using [OpenAI](https://openai.com/) and [SQLite](https://www.sqlite.org/).
