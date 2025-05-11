@@ -49,6 +49,10 @@ class CommentAnalyzer:
             # Get toxicity scores
             toxicity_scores = self.get_toxicity_scores(text)
             
+            # Get sentiment scores
+            sentiment_scores = self.sia.polarity_scores(text)
+            sentiment = 'positive' if sentiment_scores['compound'] > 0.05 else 'negative' if sentiment_scores['compound'] < -0.05 else 'neutral'
+            
             # Get spam prediction
             spam_result = self.spam_detector.predict_spam(text)
             
@@ -62,6 +66,8 @@ class CommentAnalyzer:
                 'classification': classification,
                 'toxicity_score': toxicity_scores.get('toxicity', 0),
                 'toxicity_details': json.dumps(toxicity_scores),
+                'sentiment': sentiment,
+                'sentiment_scores': sentiment_scores,
                 'spam_score': spam_result['spam_score'],
                 'is_spam': spam_result['is_spam'],
                 'spam_features': spam_result['spam_features']
