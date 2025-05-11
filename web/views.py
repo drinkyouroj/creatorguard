@@ -160,6 +160,41 @@ def get_insights(video_id):
         logger.error(f"Failed to get insights: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@bp.route('/api/metrics/spam', methods=['GET'])
+@login_required
+def get_spam_metrics():
+    """Get spam detection metrics."""
+    try:
+        logger.info("[METRICS] Getting spam detection metrics")
+        analyzer = CommentAnalyzer()
+        metrics = analyzer.spam_detector.calculate_metrics()
+        
+        if metrics is None:
+            logger.warning("[METRICS] No metrics available")
+            return jsonify({
+                'accuracy': None,
+                'top_features': {},
+                'total_samples': 0,
+                'spam_samples': 0,
+                'ham_samples': 0,
+                'model_status': 'uninitialized'
+            })
+            
+        logger.info(f"[METRICS] Got metrics: {metrics}")
+        return jsonify(metrics)
+        
+    except Exception as e:
+        logger.error(f"[METRICS] Failed to get spam metrics: {str(e)}")
+        return jsonify({
+            'error': str(e),
+            'accuracy': None,
+            'top_features': {},
+            'total_samples': 0,
+            'spam_samples': 0,
+            'ham_samples': 0,
+            'model_status': 'error'
+        })
+
 @bp.route('/api/comments/<video_id>')
 @login_required
 def get_comments(video_id):
