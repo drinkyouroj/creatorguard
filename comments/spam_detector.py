@@ -263,21 +263,25 @@ class SpamDetector:
         """Mark a comment as spam/not spam for training."""
         conn = None
         try:
+            logger.info(f"[SPAM] SpamDetector marking comment {comment_id} as spam={is_spam}")
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
             # Get comment text and verify comment exists
+            logger.info(f"[SPAM] Looking up comment {comment_id} in database")
             cursor.execute("SELECT comment_id, text FROM comments WHERE comment_id = ?", (comment_id,))
             result = cursor.fetchone()
             if not result:
-                logger.error(f"Comment {comment_id} not found")
+                logger.error(f"[SPAM] Comment {comment_id} not found in database")
                 return False
             
             comment_id = result[0]
             text = result[1]
+            logger.info(f"[SPAM] Found comment {comment_id} with text: {text[:50]}...")
             
             try:
                 # Add to training data
+                logger.info(f"[SPAM] Adding comment {comment_id} to spam_training")
                 cursor.execute("""
                     INSERT OR REPLACE INTO spam_training (
                         comment_id, text, is_spam, confidence, created_at
@@ -285,6 +289,7 @@ class SpamDetector:
                 """, (comment_id, text, is_spam, confidence))
                 
                 # Update comment status
+                logger.info(f"[SPAM] Updating comment {comment_id} status in comments table")
                 cursor.execute("""
                     UPDATE comments 
                     SET is_spam = ?, spam_score = ?, updated_at = datetime('now')
@@ -292,9 +297,10 @@ class SpamDetector:
                 """, (is_spam, 1.0 if is_spam else 0.0, comment_id))
                 
                 conn.commit()
-                logger.info(f"Successfully marked comment {comment_id} as {'spam' if is_spam else 'not spam'}")
+                logger.info(f"[SPAM] Successfully marked comment {comment_id} as {'spam' if is_spam else 'not spam'}")
                 
                 # Retrain model if we have enough new samples
+                logger.info("[SPAM] Checking for untrained samples")
                 cursor.execute("""
                     SELECT COUNT(*)
                     FROM spam_training

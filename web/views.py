@@ -245,28 +245,44 @@ def import_video():
 def mark_comment_spam(comment_id):
     """Mark a comment as spam or not spam."""
     try:
-        logger.info(f"Received request to mark comment {comment_id} as spam")
+        logger.info(f"[SPAM] Received request to mark comment {comment_id} as spam")
         data = request.get_json()
         if data is None:
-            logger.error("No JSON data received in request")
+            logger.error("[SPAM] No JSON data received in request")
             return jsonify({'error': 'No JSON data received'}), 400
             
-        is_spam = data.get('is_spam', True)
-        logger.info(f"Marking comment {comment_id} as spam={is_spam}")
+        is_spam = data.get('is_spam')
+        if is_spam is None:
+            logger.error("[SPAM] is_spam field missing in request")
+            return jsonify({'error': 'is_spam field is required'}), 400
+            
+        logger.info(f"[SPAM] Request data: {data}")
+        logger.info(f"[SPAM] Marking comment {comment_id} as spam={is_spam}")
+        
+        # Verify comment exists
+        conn = sqlite3.connect('creatorguard.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT comment_id FROM comments WHERE comment_id = ?", (comment_id,))
+        result = cursor.fetchone()
+        if not result:
+            logger.error(f"[SPAM] Comment {comment_id} not found in database")
+            return jsonify({'error': f'Comment {comment_id} not found'}), 404
+        conn.close()
         
         analyzer = CommentAnalyzer()
         result = analyzer.mark_comment_as_spam(comment_id, is_spam)
+        logger.info(f"[SPAM] mark_comment_as_spam returned: {result}")
         
         if result['status'] == 'error':
-            logger.error(f"Failed to mark comment as spam: {result['error']}")
+            logger.error(f"[SPAM] Failed to mark comment as spam: {result['error']}")
             return jsonify({'error': result['error']}), 500
             
         # Return success response with status
-        logger.info(f"Successfully marked comment {comment_id} as spam={is_spam}")
+        logger.info(f"[SPAM] Successfully marked comment {comment_id} as spam={is_spam}")
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Failed to mark comment as spam: {str(e)}", exc_info=True)
+        logger.error(f"[SPAM] Failed to mark comment as spam: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/api/comments/mark_spam_bulk', methods=['POST'])
