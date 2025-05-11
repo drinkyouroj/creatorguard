@@ -150,19 +150,19 @@ class CommentAnalyzer:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            cursor.execute("SELECT id, text FROM comments WHERE id = ?", (comment_id,))
+            cursor.execute("SELECT comment_id, text FROM comments WHERE comment_id = ?", (comment_id,))
             result = cursor.fetchone()
             if not result:
                 self.logger.error(f"Comment {comment_id} not found")
                 return {'status': 'error', 'error': f'Comment {comment_id} not found'}
             
-            comment_db_id = result[0]
+            comment_id = result[0]
             text = result[1]
             self.logger.info(f"Found comment {comment_id}: {text[:50]}...")
             
             try:
                 # Mark comment as spam using SpamDetector
-                success = self.spam_detector.mark_as_spam(comment_db_id, is_spam)
+                success = self.spam_detector.mark_as_spam(comment_id, is_spam)
                 if not success:
                     self.logger.error(f"SpamDetector.mark_as_spam failed for comment {comment_id}")
                     return {'status': 'error', 'error': 'Failed to mark comment as spam'}
