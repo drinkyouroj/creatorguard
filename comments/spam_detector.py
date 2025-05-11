@@ -76,41 +76,85 @@ class SpamDetector:
         vectorizer_path = os.path.join(model_dir, 'vectorizer.joblib')
         
         try:
-            self.model = joblib.load(model_path)
-            self.vectorizer = joblib.load(vectorizer_path)
-            logger.info("✅ Loaded existing spam detection model")
-        except FileNotFoundError:
+            # Try to load both model and vectorizer
+            if os.path.exists(model_path) and os.path.exists(vectorizer_path):
+                try:
+                    self.model = joblib.load(model_path)
+                    self.vectorizer = joblib.load(vectorizer_path)
+                    
+                    # Verify model and vectorizer are valid
+                    if not isinstance(self.model, RandomForestClassifier) or \
+                       not isinstance(self.vectorizer, TfidfVectorizer):
+                        raise ValueError("Invalid model or vectorizer type")
+                    
+                    logger.info("✅ Loaded existing spam detection model")
+                    return
+                except (EOFError, ValueError) as e:
+                    logger.warning(f"Failed to load model files: {str(e)}")
+                    # Delete corrupted files
+                    if os.path.exists(model_path):
+                        os.remove(model_path)
+                    if os.path.exists(vectorizer_path):
+                        os.remove(vectorizer_path)
+            
+            # Initialize new model if loading failed or files don't exist
             logger.info("🆕 Initializing new spam detection model")
             self.model = RandomForestClassifier(n_estimators=100, random_state=42)
             self.vectorizer = TfidfVectorizer(max_features=1000)
+            
+        except Exception as e:
+            logger.error(f"❌ Error loading/initializing model: {str(e)}", exc_info=True)
+            raise
 
     def save_model(self, metrics=None):
         """Save model and update database with version info."""
-        # Save model files
-        model_dir = 'models'
-        model_path = os.path.join(model_dir, 'spam_model.joblib')
-        vectorizer_path = os.path.join(model_dir, 'vectorizer.joblib')
-        
-        joblib.dump(self.model, model_path)
-        joblib.dump(self.vectorizer, vectorizer_path)
-        
-        # Update database with model version
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        version = datetime.now().strftime('%Y%m%d_%H%M%S')
-        parameters = json.dumps(self.model.get_params())
-        metrics_json = json.dumps(metrics) if metrics else '{}'
-        
-        cursor.execute("""
-            INSERT INTO model_versions (model_type, version, metrics, parameters)
-            VALUES (?, ?, ?, ?)
-        """, ('spam', version, metrics_json, parameters))
-        
-        conn.commit()
-        conn.close()
-        
-        logger.info(f"✅ Saved spam detection model version {version}")
+        conn = None
+        try:
+            # Save model files
+            model_dir = 'models'
+            model_path = os.path.join(model_dir, 'spam_model.joblib')
+            vectorizer_path = os.path.join(model_dir, 'vectorizer.joblib')
+            
+            # Create backup of existing files
+            for path in [model_path, vectorizer_path]:
+                if os.path.exists(path):
+                    backup_path = f"{path}.bak"
+                    os.rename(path, backup_path)
+            
+            try:
+                # Save new model files
+                joblib.dump(self.model, model_path)
+                joblib.dump(self.vectorizer, vectorizer_path)
+                
+                # If save successful, remove backups
+                for path in [model_path, vectorizer_path]:
+                    backup_path = f"{path}.bak"
+                    if os.path.exists(backup_path):
+                        os.remove(backup_path)
+                
+                # Update database with model version
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                
+                version = datetime.now().strftime('%Y%m%d_%H%M%S')
+                
+            except Exception as e:
+                # Restore backups if save failed
+                logger.error(f"❌ Failed to save model: {str(e)}")
+                for path in [model_path, vectorizer_path]:
+                    backup_path = f"{path}.bak"
+                    if os.path.exists(backup_path):
+                        if os.path.exists(path):
+                            os.remove(path)
+                        os.rename(backup_path, path)
+                raise
+            
+        except Exception as e:
+            logger.error(f"❌ Error saving model: {str(e)}", exc_info=True)
+            raise
+        finally:
+            if conn:
+                conn.close()
 
     def predict_spam(self, text):
         """Predict if text is spam and return probability."""
