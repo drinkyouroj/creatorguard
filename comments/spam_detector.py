@@ -277,16 +277,17 @@ class SpamDetector:
             try:
                 # Add to training data
                 cursor.execute("""
-                    INSERT OR REPLACE INTO spam_training (comment_id, is_spam, confidence, created_at)
-                    VALUES (?, ?, ?, datetime('now'))
-                """, (comment_id, is_spam, confidence))
+                    INSERT OR REPLACE INTO spam_training (
+                        comment_id, text, is_spam, confidence, created_at
+                    ) VALUES (?, ?, ?, ?, datetime('now'))
+                """, (comment_id, text, is_spam, confidence))
                 
                 # Update comment status
                 cursor.execute("""
                     UPDATE comments 
-                    SET is_spam = ?, updated_at = datetime('now')
+                    SET is_spam = ?, spam_score = ?, updated_at = datetime('now')
                     WHERE comment_id = ?
-                """, (is_spam, comment_id))
+                """, (is_spam, 1.0 if is_spam else 0.0, comment_id))
                 
                 conn.commit()
                 
@@ -315,7 +316,10 @@ class SpamDetector:
             return False
         finally:
             if conn:
-                conn.close()
+                try:
+                    conn.close()
+                except Exception as e:
+                    logger.error(f"Error closing connection: {e}")
 
     def calculate_metrics(self):
         """Calculate current model performance metrics."""
