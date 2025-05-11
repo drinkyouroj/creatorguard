@@ -383,55 +383,62 @@ class SpamDetector:
     def calculate_metrics(self):
         """Calculate current model metrics."""
         conn = None
+        try:
             # Check if model is trained
             if not hasattr(self.model, 'estimators_'):
                 logger.warning("Model not trained yet")
                 return {
                     'accuracy': None,
                     'top_features': {},
-                    'total_samples': len(results),
-                    'spam_samples': sum(1 for r in results if r[1]),
-                    'ham_samples': sum(1 for r in results if not r[1]),
+                    'total_samples': 0,
+                    'spam_samples': 0,
+                    'ham_samples': 0,
                     'model_status': 'untrained'
                 }
 
-            # Calculate metrics for trained model
-            try:
-                # Transform texts using vectorizer
-                X = self.vectorizer.transform(texts)
-                y_pred = self.model.predict(X)
-
-                # Calculate accuracy
-                accuracy = accuracy_score(labels, y_pred)
-
-                # Get feature importance
-                feature_names = self.vectorizer.get_feature_names_out()
-                importances = self.model.feature_importances_
-                top_features = dict(sorted(
-                    zip(feature_names, importances),
-                    key=lambda x: x[1],
-                    reverse=True
-                )[:10])
-
-                return {
-                    'accuracy': float(accuracy),
-                    'top_features': top_features,
-                    'total_samples': len(results),
-                    'spam_samples': sum(1 for r in results if r[1]),
-                    'ham_samples': sum(1 for r in results if not r[1]),
-                    'model_status': 'trained'
-                }
-
-            except Exception as e:
-                logger.error(f"Error calculating model metrics: {e}")
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT text, is_spam
+                FROM spam_training
+            """)
+            results = cursor.fetchall()
+            
+            if not results:
                 return {
                     'accuracy': None,
                     'top_features': {},
-                    'total_samples': len(results),
-                    'spam_samples': sum(1 for r in results if r[1]),
-                    'ham_samples': sum(1 for r in results if not r[1]),
-                    'model_status': 'error'
+                    'total_samples': 0,
+                    'spam_samples': 0,
+                    'ham_samples': 0,
+                    'model_status': 'no_data'
                 }
+            
+            texts = [row[0] for row in results]
+            labels = [row[1] for row in results]
+
+            # Transform texts using vectorizer
+            X = self.vectorizer.transform(texts)
+            y_pred = self.model.predict(X)
+            accuracy = accuracy_score(labels, y_pred)
+
+            # Get feature importance
+            feature_names = self.vectorizer.get_feature_names_out()
+            importances = self.model.feature_importances_
+            top_features = dict(sorted(
+                zip(feature_names, importances),
+                key=lambda x: x[1],
+                reverse=True
+            )[:5])
+
+            return {
+                'accuracy': float(accuracy),
+                'top_features': top_features,
+                'total_samples': len(results),
+                'spam_samples': sum(1 for r in results if r[1]),
+                'ham_samples': sum(1 for r in results if not r[1]),
+                'model_status': 'trained'
+            }
             
         except Exception as e:
             logger.error(f"❌ Error calculating metrics: {str(e)}", exc_info=True)
@@ -442,7 +449,7 @@ class SpamDetector:
                 'spam_samples': 0,
                 'ham_samples': 0,
                 'model_status': 'error'
-                }
+            }
         finally:
             if conn:
                 conn.close()
