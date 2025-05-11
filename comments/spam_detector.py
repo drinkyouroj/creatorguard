@@ -288,7 +288,7 @@ class SpamDetector:
                 logger.info(f"[SPAM] Adding comment {comment_id} to spam_training")
                 cursor.execute("""
                     INSERT OR REPLACE INTO spam_training (
-                        comment_id, text, is_spam, confidence, created_at
+                        comment_id, text, is_spam, confidence, trained_at
                     ) VALUES (?, ?, ?, ?, datetime('now'))
                 """, (comment_id, text, is_spam, confidence))
                 
