@@ -178,26 +178,45 @@ class SpamDetector:
                 return {
                     'is_spam': False,
                     'confidence': 0.5,
-                    'spam_score': 0.5
+                    'spam_score': 0.5,
+                    'spam_features': {}
                 }
 
+            # Extract text features
+            text_features = self.extract_features(text)
+            
             # Transform text to feature vector
             try:
                 features = self.vectorizer.transform([text])
             except Exception as e:
                 logger.error(f"❌ Error transforming text: {str(e)}")
                 # Retrain the model to update the vectorizer
+                logger.info("Retraining model due to feature mismatch")
                 self.train(retrain=True)
                 features = self.vectorizer.transform([text])
 
             # Get prediction
             prediction = self.model.predict(features)[0]
-            confidence = np.max(self.model.predict_proba(features))
+            proba = self.model.predict_proba(features)[0]
+            confidence = float(np.max(proba))
+            
+            # Get feature importance for this prediction
+            feature_names = self.vectorizer.get_feature_names_out()
+            importances = self.model.feature_importances_
+            top_features = dict(sorted(
+                zip(feature_names, importances),
+                key=lambda x: x[1],
+                reverse=True
+            )[:5])
             
             return {
                 'is_spam': bool(prediction),
-                'confidence': float(confidence),
-                'spam_score': float(confidence) if prediction else 1.0 - float(confidence)
+                'confidence': confidence,
+                'spam_score': confidence if prediction else 1.0 - confidence,
+                'spam_features': {
+                    'text_features': text_features,
+                    'important_words': top_features
+                }
             }
             
         except Exception as e:
