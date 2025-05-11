@@ -8,6 +8,7 @@ import json
 from comments.spam_detector import SpamDetector
 from comments.analyze_comments import CommentAnalyzer
 from comments.fetch_comments import YouTubeCommentFetcher
+from comments.spam_metrics import SpamMetrics
 from utils.logger import setup_logger
 
 # Set up logger for this module
@@ -163,9 +164,9 @@ def get_insights(video_id):
 @bp.route('/api/metrics/spam', methods=['GET'])
 @login_required
 def get_spam_metrics():
-    """Get spam detection metrics."""
+    """Get global spam detection metrics."""
     try:
-        logger.info("[METRICS] Getting spam detection metrics")
+        logger.info("[METRICS] Getting global spam detection metrics")
         analyzer = CommentAnalyzer()
         metrics = analyzer.spam_detector.calculate_metrics()
         
@@ -185,6 +186,31 @@ def get_spam_metrics():
         
     except Exception as e:
         logger.error(f"[METRICS] Failed to get spam metrics: {str(e)}")
+        return jsonify({
+            'error': str(e),
+            'accuracy': None,
+            'top_features': {},
+            'total_samples': 0,
+            'spam_samples': 0,
+            'ham_samples': 0,
+            'model_status': 'error'
+        })
+
+@bp.route('/api/spam/metrics/<string:video_id>', methods=['GET'])
+@login_required
+def get_video_spam_metrics(video_id):
+    """Get spam detection metrics for a specific video."""
+    try:
+        logger.info(f"[METRICS] Getting spam metrics for video {video_id}")
+        db_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'creatorguard.db')
+        metrics_service = SpamMetrics(db_path)
+        metrics = metrics_service.get_metrics(video_id)
+        
+        logger.info(f"[METRICS] Got video-specific metrics: {metrics}")
+        return jsonify(metrics)
+        
+    except Exception as e:
+        logger.error(f"[METRICS] Failed to get video spam metrics: {str(e)}")
         return jsonify({
             'error': str(e),
             'accuracy': None,

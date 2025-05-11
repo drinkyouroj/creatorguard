@@ -152,6 +152,135 @@
                         </button>
                     </div>
                     
+                    <!-- Spam Metrics Section -->
+                    <div class="bg-white p-4 rounded-lg shadow-sm mt-4 mb-6">
+                        <h5 class="text-md font-medium text-gray-900 mb-3">Spam Detection Metrics</h5>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="bg-gray-50 p-3 rounded">
+                                <div class="text-sm text-gray-500">Accuracy</div>
+                                <div class="text-xl font-semibold" v-if="spamMetrics && spamMetrics.accuracy !== null">
+                                    [[ (spamMetrics.accuracy * 100).toFixed(1) ]]%
+                                </div>
+                                <div class="text-xl font-semibold" v-else>--</div>
+                            </div>
+                            <div class="bg-gray-50 p-3 rounded">
+                                <div class="text-sm text-gray-500">Training Samples</div>
+                                <div class="text-xl font-semibold">
+                                    <span v-if="spamMetrics">[[ spamMetrics.total_samples ]]</span>
+                                    <span v-else>--</span>
+                                </div>
+                                <div class="text-xs text-gray-500" v-if="spamMetrics">
+                                    Spam: [[ spamMetrics.spam_samples ]] / Ham: [[ spamMetrics.ham_samples ]]
+                                </div>
+                            </div>
+                            <div class="bg-gray-50 p-3 rounded">
+                                <div class="text-sm text-gray-500">Model Status</div>
+                                <div class="text-xl font-semibold">
+                                    <span v-if="spamMetrics" 
+                                          :class="{
+                                            'text-green-600': spamMetrics.model_status === 'trained',
+                                            'text-yellow-600': spamMetrics.model_status === 'untrained',
+                                            'text-red-600': spamMetrics.model_status === 'error'
+                                          }">
+                                        [[ spamMetrics.model_status ]]
+                                    </span>
+                                    <span v-else>--</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-if="spamMetrics && spamMetrics.top_features" class="mt-4">
+                            <div class="text-sm font-medium text-gray-700 mb-2">Top Spam Features</div>
+                            <div class="flex flex-wrap gap-2">
+                                <span v-for="(value, key) in spamMetrics.top_features" :key="key"
+                                      class="inline-block px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded">
+                                    [[ key ]] ([[ (value * 100).toFixed(1) ]]%)
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Advanced Filtering -->
+                    <div class="bg-white p-4 rounded-lg shadow-sm mb-4">
+                        <h5 class="text-md font-medium text-gray-900 mb-3">Filter Comments</h5>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <!-- Content Type Filter -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Content Type</label>
+                                <div class="flex flex-wrap gap-2">
+                                    <button 
+                                        @click="setContentFilter(null)"
+                                        :class="{
+                                            'px-2 py-1 rounded text-xs': true,
+                                            'bg-blue-600 text-white': contentFilter === null,
+                                            'bg-gray-200 text-gray-700 hover:bg-gray-300': contentFilter !== null
+                                        }"
+                                    >All</button>
+                                    <button 
+                                        v-for="type in contentTypes" 
+                                        :key="type"
+                                        @click="setContentFilter(type)"
+                                        :class="{
+                                            'px-2 py-1 rounded text-xs': true,
+                                            'bg-blue-600 text-white': contentFilter === type,
+                                            'bg-gray-200 text-gray-700 hover:bg-gray-300': contentFilter !== type
+                                        }"
+                                        :style="contentFilter === type ? {} : {borderLeft: `3px solid ${getContentColor(type)}`}"
+                                    >
+                                        [[ type.charAt(0).toUpperCase() + type.slice(1) ]]
+                                        <span class="ml-1" v-if="filterCounts && filterCounts.content[type]">
+                                            ([[ filterCounts.content[type] ]])
+                                        </span>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Sentiment Filter -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Sentiment</label>
+                                <div class="flex flex-wrap gap-2">
+                                    <button 
+                                        @click="setSentimentFilter(null)"
+                                        :class="{
+                                            'px-2 py-1 rounded text-xs': true,
+                                            'bg-blue-600 text-white': sentimentFilter === null,
+                                            'bg-gray-200 text-gray-700 hover:bg-gray-300': sentimentFilter !== null
+                                        }"
+                                    >All</button>
+                                    <button 
+                                        v-for="type in sentimentTypes" 
+                                        :key="type"
+                                        @click="setSentimentFilter(type)"
+                                        :class="{
+                                            'px-2 py-1 rounded text-xs': true,
+                                            'bg-blue-600 text-white': sentimentFilter === type,
+                                            'bg-gray-200 text-gray-700 hover:bg-gray-300': sentimentFilter !== type
+                                        }"
+                                        :style="sentimentFilter === type ? {} : {borderLeft: `3px solid ${getSentimentColor(type)}`}"
+                                    >
+                                        [[ type.charAt(0).toUpperCase() + type.slice(1) ]]
+                                        <span class="ml-1" v-if="filterCounts && filterCounts.sentiment[type]">
+                                            ([[ filterCounts.sentiment[type] ]])
+                                        </span>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <!-- Search Filter -->
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Search</label>
+                                <div class="flex">
+                                    <input 
+                                        type="text" 
+                                        v-model="searchFilter"
+                                        @input="applySearchFilter"
+                                        placeholder="Search in comments..."
+                                        class="block w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm"
+                                    >
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <!-- Bulk Actions -->
                     <div v-if="selectedComments.length > 0" class="mb-4 p-4 bg-gray-50 rounded-lg">
                         <div class="flex items-center justify-between">
@@ -311,36 +440,69 @@
                 data() {
                     return {
                         videos: [],
-                        loading: true,
-                        importing: false,
-                        newVideoId: '',
-                        importError: '',
-                        showInsights: false,
-                        currentVideoId: null,
+                        currentVideo: null,
                         comments: [],
-                        currentFilter: 'all',
+                        contentFilter: null,
+                        sentimentFilter: null,
+                        searchFilter: '',
+                        contentTypes: ['spam', 'toxic', 'questionable', 'safe'],
+                        sentimentTypes: ['positive', 'neutral', 'negative'],
+                        filterCounts: {
+                            content: {},
+                            sentiment: {}
+                        },
+                        spamMetrics: null,
                         selectedComments: [],
                         selectAll: false,
-                        showMetrics: false,
-                        metrics: {
-                            current: null,
-                            history: [],
-                            trends: []
-                        },
-                        trendChart: null,
-                        metricsChart: null,
-                        loadingMetrics: false
-                    }
+                        loading: true,
+                        importing: false,
+                        importError: null,
+                        newVideoId: '',
+                        page: 1,
+                        totalPages: 1,
+                        showInsights: false,
+                        currentVideoId: null
+                    };
                 },
                 computed: {
                     filteredComments() {
-                        if (this.currentFilter === 'all') return this.comments;
-                        if (this.currentFilter === 'spam') return this.comments.filter(c => c.is_spam);
-                        return this.comments.filter(c => c.classification === this.currentFilter);
+                        let filtered = this.comments;
+                        
+                        // Apply content filter
+                        if (this.contentFilter) {
+                            filtered = filtered.filter(comment => {
+                                if (this.contentFilter === 'spam' && comment.is_spam) return true;
+                                
+                                // Extract content part from combined classification
+                                const contentClass = comment.classification?.split(':')[0] || '';
+                                return contentClass === this.contentFilter;
+                            });
+                        }
+                        
+                        // Apply sentiment filter
+                        if (this.sentimentFilter) {
+                            filtered = filtered.filter(comment => {
+                                // Extract sentiment part from combined classification
+                                const parts = comment.classification?.split(':') || [];
+                                const sentimentClass = parts.length > 1 ? parts[1] : 'neutral';
+                                return sentimentClass === this.sentimentFilter;
+                            });
+                        }
+                        
+                        // Apply search filter
+                        if (this.searchFilter) {
+                            const searchLower = this.searchFilter.toLowerCase();
+                            filtered = filtered.filter(comment => {
+                                return comment.text.toLowerCase().includes(searchLower) || 
+                                       comment.author.toLowerCase().includes(searchLower);
+                            });
+                        }
+                        
+                        return filtered;
                     }
                 },
                 mounted() {
-                    this.fetchVideos()
+                    this.fetchVideos();
                 },
                 methods: {
                     async fetchVideos() {
@@ -376,22 +538,121 @@
                     },
                     async viewInsights(videoId) {
                         try {
-                            this.showInsights = true
-                            this.currentVideoId = videoId
-                            const response = await axios.get(`/api/videos/${videoId}/comments`)
-                            this.comments = response.data
+                            this.showInsights = true;
+                            this.currentVideoId = videoId;
+                            this.contentFilter = null;
+                            this.sentimentFilter = null;
+                            this.searchFilter = '';
+                            
+                            // Fetch comments
+                            const response = await axios.get(`/api/videos/${videoId}/comments`);
+                            this.comments = response.data;
+                            
+                            // Fetch spam metrics
+                            this.fetchSpamMetrics(videoId);
+                            
+                            // Calculate filter counts
+                            this.updateFilterCounts();
                         } catch (error) {
-                            console.error('Error loading insights:', error)
+                            console.error('Error loading insights:', error);
+                        }
+                    },
+                    
+                    async fetchSpamMetrics(videoId) {
+                        try {
+                            const response = await axios.get(`/api/spam/metrics/${videoId}`);
+                            this.spamMetrics = response.data;
+                        } catch (error) {
+                            console.error('Error fetching spam metrics:', error);
+                            this.spamMetrics = {
+                                accuracy: null,
+                                total_samples: 0,
+                                spam_samples: 0,
+                                ham_samples: 0,
+                                model_status: 'error',
+                                top_features: {}
+                            };
                         }
                     },
                     closeInsights() {
-                        this.showInsights = false
-                        this.currentVideoId = null
-                        this.comments = []
-                        this.currentFilter = 'all'
+                        this.showInsights = false;
+                        this.currentVideoId = null;
+                        this.comments = [];
+                        this.contentFilter = null;
+                        this.sentimentFilter = null;
+                        this.searchFilter = '';
                     },
-                    filterComments(filter) {
-                        this.currentFilter = filter
+                    
+                    setContentFilter(type) {
+                        this.contentFilter = type;
+                    },
+                    
+                    setSentimentFilter(type) {
+                        this.sentimentFilter = type;
+                    },
+                    
+                    applySearchFilter() {
+                        // The search filter is applied automatically through the computed property
+                    },
+                    
+                    updateFilterCounts() {
+                        // Initialize counters
+                        const counts = {
+                            content: {},
+                            sentiment: {}
+                        };
+                        
+                        // Process comments to extract content and sentiment
+                        const processedComments = this.comments.map(comment => {
+                            let contentClass = 'unclassified';
+                            let sentimentClass = 'neutral';
+                            
+                            if (comment.classification && comment.classification.includes(':')) {
+                                const parts = comment.classification.split(':');
+                                contentClass = parts[0];
+                                sentimentClass = parts[1];
+                            } else if (comment.classification) {
+                                contentClass = comment.classification;
+                            }
+                            
+                            return {
+                                ...comment,
+                                contentClass,
+                                sentimentClass
+                            };
+                        });
+                        
+                        // Count by content type
+                        this.contentTypes.forEach(type => {
+                            counts.content[type] = processedComments.filter(c => c.contentClass === type).length;
+                        });
+                        
+                        // Count by sentiment
+                        this.sentimentTypes.forEach(type => {
+                            counts.sentiment[type] = processedComments.filter(c => c.sentimentClass === type).length;
+                        });
+                        
+                        // Update filter counts
+                        this.filterCounts = counts;
+                    },
+                    
+                    getContentColor(type) {
+                        const colors = {
+                            'spam': '#FF9800',     // Orange
+                            'toxic': '#F44336',    // Red
+                            'questionable': '#FFC107', // Amber
+                            'safe': '#4CAF50'      // Green
+                        };
+                        return colors[type] || '#9E9E9E';
+                    },
+                    
+                    getSentimentColor(type) {
+                        const colors = {
+                            'positive': '#2196F3',  // Blue
+                            'neutral': '#9E9E9E',   // Gray
+                            'negative': '#673AB7'   // Deep Purple
+                        };
+                        return colors[type] || '#9E9E9E';
                     },
                     async markAsSpam(commentId, isSpam) {
                         try {
@@ -399,20 +660,23 @@
                                 is_spam: isSpam
                             });
                             
-                            if (response.data.status === 'error') {
-                                throw new Error(response.data.error);
-                            }
-                            
-                            // Refresh comments to show updated status
-                            await this.viewInsights(this.currentVideoId);
-                            
-                            // Show notification if model was retrained
-                            if (response.data.status === 'retrained') {
-                                alert('Spam detection model has been retrained with new data!');
+                            if (response.data.success) {
+                                // Show notification
+                                this.$nextTick(() => {
+                                    this.showNotification(isSpam ? 'Marked as spam' : 'Marked as not spam', 'success');
+                                });
+                                
+                                // Refresh comments to show updated status
+                                await this.refreshComments();
+                                
+                                // Update spam metrics
+                                this.fetchSpamMetrics(this.currentVideoId);
+                            } else {
+                                this.showNotification(response.data.error || 'Failed to update', 'error');
                             }
                         } catch (error) {
-                            console.error('Error marking as spam:', error);
-                            alert(error.response?.data?.error || 'Failed to update spam status');
+                            console.error('Error marking comment as spam:', error);
+                            this.showNotification('Error marking comment as spam', 'error');
                         }
                     },
                     toggleSelectAll() {

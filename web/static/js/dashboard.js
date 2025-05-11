@@ -1,10 +1,31 @@
 // Global state
 let currentPage = 1;
 let currentVideoId = null;
+let currentFilters = {
+    content: null,  // spam, toxic, questionable, safe
+    sentiment: null, // positive, neutral, negative
+    search: ''
+};
 let charts = {
     classification: null,
-    moderation: null,
+    sentiment: null,
+    spamMetrics: null,
     timeline: null
+};
+
+// Constants for classification
+const CONTENT_TYPES = ['spam', 'toxic', 'questionable', 'safe'];
+const SENTIMENT_TYPES = ['positive', 'neutral', 'negative'];
+const CONTENT_COLORS = {
+    'spam': '#FF9800',     // Orange
+    'toxic': '#F44336',    // Red
+    'questionable': '#FFC107', // Amber
+    'safe': '#4CAF50'      // Green
+};
+const SENTIMENT_COLORS = {
+    'positive': '#2196F3',  // Blue
+    'neutral': '#9E9E9E',   // Gray
+    'negative': '#673AB7'   // Deep Purple
 };
 
 // Initialize dashboard
@@ -281,25 +302,86 @@ function showNotification(message, type = 'info') {
 
 function updateCommentsTable(data) {
     const tbody = document.getElementById('commentsTable');
-    tbody.innerHTML = data.comments.map(comment => `
+    
+    // Process comments to extract content and sentiment from combined classification
+    const processedComments = data.comments.map(comment => {
+        // Parse the combined classification (format: "content:sentiment")
+        let contentClass = 'unclassified';
+        let sentimentClass = 'neutral';
+        
+        if (comment.classification && comment.classification.includes(':')) {
+            const parts = comment.classification.split(':');
+            contentClass = parts[0];
+            sentimentClass = parts[1];
+        } else if (comment.classification) {
+            contentClass = comment.classification;
+        }
+        
+        return {
+            ...comment,
+            contentClass,
+            sentimentClass
+        };
+    });
+    
+    // Apply filters
+    const filteredComments = processedComments.filter(comment => {
+        // Content filter
+        if (currentFilters.content && comment.contentClass !== currentFilters.content) {
+            return false;
+        }
+        
+        // Sentiment filter
+        if (currentFilters.sentiment && comment.sentimentClass !== currentFilters.sentiment) {
+            return false;
+        }
+        
+        // Search filter
+        if (currentFilters.search && !comment.text.toLowerCase().includes(currentFilters.search.toLowerCase())) {
+            return false;
+        }
+        
+        return true;
+    });
+    
+    // Update the table
+    tbody.innerHTML = filteredComments.map(comment => `
         <tr>
             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${comment.author}</td>
             <td class="px-6 py-4 text-sm text-gray-500">${comment.text}</td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                    ${getClassificationColor(comment.classification)}">
-                    ${comment.classification || 'unclassified'}
-                </span>
+                <div class="flex flex-col space-y-1">
+                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                        style="background-color: ${CONTENT_COLORS[comment.contentClass] || '#9E9E9E'}25; color: ${CONTENT_COLORS[comment.contentClass] || '#9E9E9E'}">
+                        ${comment.contentClass || 'unclassified'}
+                    </span>
+                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+                        style="background-color: ${SENTIMENT_COLORS[comment.sentimentClass] || '#9E9E9E'}25; color: ${SENTIMENT_COLORS[comment.sentimentClass] || '#9E9E9E'}">
+                        ${comment.sentimentClass || 'neutral'}
+                    </span>
+                </div>
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                <div class="flex items-center space-x-2">
-                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                        ${getActionColor(comment.mod_action)}">
-                        ${comment.mod_action || 'pending'}
-                    </span>
+                <div class="flex flex-col space-y-2">
+                    <div>
+                        <span class="text-xs font-medium">Spam Score:</span>
+                        <span class="ml-1 text-xs ${comment.spam_score > 0.5 ? 'text-orange-600' : 'text-green-600'}">
+                            ${(comment.spam_score * 100).toFixed(1)}%
+                        </span>
+                    </div>
+                    <div>
+                        <span class="text-xs font-medium">Toxicity:</span>
+                        <span class="ml-1 text-xs ${comment.toxicity_score > 0.5 ? 'text-red-600' : 'text-green-600'}">
+                            ${(comment.toxicity_score * 100).toFixed(1)}%
+                        </span>
+                    </div>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <div class="flex flex-col space-y-2">
                     <button onclick="markAsSpam('${comment.comment_id}', true)" 
-                        class="${Boolean(comment.is_spam) ? 'bg-yellow-500' : 'bg-gray-200'} text-white px-2 py-1 rounded text-xs">
-                        Spam
+                        class="${Boolean(comment.is_spam) ? 'bg-orange-500' : 'bg-gray-200'} text-white px-2 py-1 rounded text-xs">
+                        Mark as Spam
                     </button>
                     <button onclick="markAsSpam('${comment.comment_id}', false)" 
                         class="${!Boolean(comment.is_spam) ? 'bg-green-500' : 'bg-gray-200'} text-white px-2 py-1 rounded text-xs">
@@ -312,7 +394,9 @@ function updateCommentsTable(data) {
             </td>
         </tr>
     `).join('');
-
+    
+    // Update filter counts
+    updateFilterCounts(processedComments);
     // Update pagination
     document.getElementById('pageInfo').textContent = `Page ${data.page} of ${data.total_pages}`;
     document.getElementById('prevPage').disabled = data.page <= 1;
