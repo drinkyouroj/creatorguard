@@ -163,7 +163,7 @@ def get_insights(video_id):
 @bp.route('/api/metrics/spam', methods=['GET'])
 @login_required
 def get_spam_metrics():
-    """Get spam detection metrics."""
+    """Get spam detection metrics and trends."""
     try:
         logger.info("[METRICS] Getting spam detection metrics")
         analyzer = CommentAnalyzer()
