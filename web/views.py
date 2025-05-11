@@ -178,7 +178,8 @@ def get_comments(video_id):
         
         # Get paginated comments
         cursor.execute("""
-            SELECT id, author, text, timestamp, classification, mod_action, emotional_score
+            SELECT id, comment_id, author, text, timestamp, classification, mod_action, 
+                   emotional_score, is_spam, spam_score
             FROM comments 
             WHERE video_id = ?
             ORDER BY timestamp DESC
@@ -187,12 +188,15 @@ def get_comments(video_id):
         
         comments = [{
             'id': row[0],
-            'author': row[1],
-            'text': row[2],
-            'timestamp': row[3],
-            'classification': row[4],
-            'mod_action': row[5],
-            'emotional_score': row[6]
+            'comment_id': row[1],
+            'author': row[2],
+            'text': row[3],
+            'timestamp': row[4],
+            'classification': row[5],
+            'mod_action': row[6],
+            'emotional_score': row[7],
+            'is_spam': bool(row[8]) if row[8] is not None else None,
+            'spam_score': float(row[9]) if row[9] is not None else None
         } for row in cursor.fetchall()]
         
         return jsonify({
