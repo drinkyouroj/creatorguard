@@ -256,6 +256,13 @@ def mark_comment_spam(comment_id):
             logger.error("[SPAM] is_spam field missing in request")
             return jsonify({'error': 'is_spam field is required'}), 400
             
+        # Convert is_spam to boolean
+        try:
+            is_spam = bool(is_spam)
+        except (ValueError, TypeError):
+            logger.error(f"[SPAM] Invalid is_spam value: {is_spam}")
+            return jsonify({'error': 'is_spam must be a boolean value'}), 400
+            
         logger.info(f"[SPAM] Request data: {data}")
         logger.info(f"[SPAM] Marking comment {comment_id} as spam={is_spam}")
         
