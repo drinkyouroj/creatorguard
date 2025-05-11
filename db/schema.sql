@@ -91,6 +91,7 @@ CREATE INDEX IF NOT EXISTS idx_comments_classification ON comments(classificatio
 CREATE INDEX IF NOT EXISTS idx_comments_mod_action ON comments(mod_action);
 CREATE INDEX IF NOT EXISTS idx_comments_parent_id ON comments(parent_id);
 CREATE INDEX IF NOT EXISTS idx_comments_timestamp ON comments(timestamp);
+CREATE INDEX IF NOT EXISTS idx_comments_comment_id ON comments(comment_id);
 
 -- Indices for users table
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
