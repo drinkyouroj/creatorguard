@@ -274,27 +274,39 @@ class SpamDetector:
             
             text = result[0]
             
-            # Add to training data
-            cursor.execute("""
-                INSERT OR REPLACE INTO spam_training (comment_id, is_spam, confidence, created_at)
-                VALUES (?, ?, ?, datetime('now'))
-            """, (comment_id, is_spam, confidence))
-            
-            conn.commit()
-            
-            # Retrain model if we have enough new samples
-            cursor.execute("""
-                SELECT COUNT(*)
-                FROM spam_training
-                WHERE trained_at IS NULL
-            """)
-            
-            untrained_count = cursor.fetchone()[0]
-            if untrained_count >= 10:
-                self.train()
-            
-            logger.info(f"✅ Marked comment {comment_id} as {'spam' if is_spam else 'not spam'}")
-            return True
+            try:
+                # Add to training data
+                cursor.execute("""
+                    INSERT OR REPLACE INTO spam_training (comment_id, is_spam, confidence, created_at)
+                    VALUES (?, ?, ?, datetime('now'))
+                """, (comment_id, is_spam, confidence))
+                
+                # Update comment status
+                cursor.execute("""
+                    UPDATE comments 
+                    SET is_spam = ?, updated_at = datetime('now')
+                    WHERE comment_id = ?
+                """, (is_spam, comment_id))
+                
+                conn.commit()
+                
+                # Retrain model if we have enough new samples
+                cursor.execute("""
+                    SELECT COUNT(*)
+                    FROM spam_training
+                    WHERE trained_at IS NULL
+                """)
+                
+                untrained_count = cursor.fetchone()[0]
+                if untrained_count >= 10:
+                    self.train()
+                
+                logger.info(f"✅ Marked comment {comment_id} as {'spam' if is_spam else 'not spam'}")
+                return True
+                
+            except Exception as e:
+                conn.rollback()
+                raise
             
         except Exception as e:
             logger.error(f"❌ Error marking comment as spam: {e}", exc_info=True)
@@ -378,9 +390,6 @@ class SpamDetector:
                     self.train(retrain=True)
                     return self.calculate_metrics()
                 return None
-                    logger.warning("Feature mismatch detected, attempting one-time retrain...")
-                    self.train(retrain=True)
-                    return self.calculate_metrics()
                 return None
             
         except Exception as e:
