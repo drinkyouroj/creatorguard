@@ -726,9 +726,37 @@
                             return true;
                         } catch (error) {
                             console.error('Error refreshing comments:', error);
-                            this.showNotification('Failed to refresh comments', 'error');
+                            // Use alert instead of showNotification since it might not be defined yet
+                            alert('Failed to refresh comments');
                             return false;
                         }
+                    },
+                    
+                    showNotification(message, type = 'info') {
+                        // Create notification element if it doesn't exist
+                        let notification = document.getElementById('notification');
+                        if (!notification) {
+                            notification = document.createElement('div');
+                            notification.id = 'notification';
+                            notification.className = 'fixed top-4 right-4 p-4 rounded shadow-lg transition-opacity duration-500';
+                            document.body.appendChild(notification);
+                        }
+                        
+                        // Set content and style
+                        notification.textContent = message;
+                        notification.className = `fixed top-4 right-4 p-4 rounded shadow-lg transition-opacity duration-500 ${
+                            type === 'error' ? 'bg-red-500 text-white' :
+                            type === 'success' ? 'bg-green-500 text-white' :
+                            'bg-blue-500 text-white'
+                        }`;
+                        notification.style.opacity = '1';
+                        notification.style.display = 'block';
+                        
+                        // Auto-hide after 3 seconds
+                        setTimeout(() => {
+                            notification.style.opacity = '0';
+                            setTimeout(() => notification.style.display = 'none', 500);
+                        }, 3000);
                     },
                     
                     async markSelectedAsSpam(isSpam) {
