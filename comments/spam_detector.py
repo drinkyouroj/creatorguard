@@ -103,7 +103,7 @@ class SpamDetector:
             self.vectorizer = TfidfVectorizer(max_features=1000)
             
         except Exception as e:
-            logger.error(f"❌ Error loading/initializing model: {str(e)}", exc_info=True)
+            logger.error(f"❌ Error loading/initializing model: {str(e)}")
             raise
 
     def save_model(self, metrics=None):
@@ -229,57 +229,67 @@ class SpamDetector:
 
     def train(self, retrain=False):
         """Train the spam detection model using collected data."""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # Get training data
-        cursor.execute("""
-            SELECT st.text, st.features, st.is_spam, st.confidence
-            FROM spam_training st
-            WHERE st.trained_at > (
-                SELECT COALESCE(MAX(created_at), '1970-01-01')
-                FROM model_versions
-                WHERE model_type = 'spam'
-            )
-            OR ?
-        """, (retrain,))
-        
-        training_data = cursor.fetchall()
-        
-        if not training_data and not retrain:
-            logger.info("No new training data available")
-            return
-        
-        # Prepare features and labels
-        texts = [row[0] for row in training_data]
-        labels = [row[2] for row in training_data]
-        confidences = [row[3] for row in training_data]
-        
-        # Extract text features using TF-IDF
-        if retrain:
-            self.vectorizer = TfidfVectorizer(max_features=1000)
-        text_features = self.vectorizer.fit_transform(texts).toarray()
-        
-        # Extract and combine other features
-        other_features = []
-        for text in texts:
-            features = self.extract_features(text)
-            other_features.append(list(features.values()))
-        
-        # Combine all features
-        X = np.hstack((text_features, np.array(other_features)))
-        y = np.array(labels)
-        
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-        
-        # Train model
-        if retrain:
+        conn = None
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            # Always get all training data
+            cursor.execute("""
+                SELECT text, is_spam
+                FROM spam_training
+            """)
+            
+            training_data = cursor.fetchall()
+            
+            if not training_data:
+                logger.info("No training data available")
+                return None
+            
+            # Prepare features and labels
+            texts = [row[0] for row in training_data]
+            labels = [row[1] for row in training_data]
+            
+            # Always reinitialize model and vectorizer
+            logger.info("Initializing new model and vectorizer")
             self.model = RandomForestClassifier(n_estimators=100, random_state=42)
-        self.model.fit(X_train, y_train)
-        
-        # Evaluate
-        y_pred = self.model.predict(X_test)
+            self.vectorizer = TfidfVectorizer(max_features=1000)
+            
+            # Extract text features using TF-IDF
+            logger.info("Extracting text features")
+            text_features = self.vectorizer.fit_transform(texts)
+            
+            # Train model
+            logger.info("Training model")
+            self.model.fit(text_features, labels)
+            
+            # Update trained_at timestamp
+            cursor.execute("""
+                UPDATE spam_training
+                SET trained_at = CURRENT_TIMESTAMP
+                WHERE trained_at IS NULL
+            """)
+            
+            # Save model version
+            metrics = self.calculate_metrics()
+            cursor.execute("""
+                INSERT INTO model_versions (model_type, created_at)
+                VALUES ('spam', CURRENT_TIMESTAMP)
+            """)
+            
+            conn.commit()
+            logger.info("✅ Model training complete")
+            return metrics
+            
+        except Exception as e:
+            logger.error(f"❌ Error training model: {str(e)}", exc_info=True)
+            if conn:
+                conn.rollback()
+            return None
+        finally:
+            if conn:
+                conn.close()
+
         metrics = accuracy_score(y_test, y_pred), precision_score(y_test, y_pred), recall_score(y_test, y_pred), f1_score(y_test, y_pred)
         
         # Save model and metrics
@@ -432,7 +442,7 @@ class SpamDetector:
                 'spam_samples': 0,
                 'ham_samples': 0,
                 'model_status': 'error'
-            }
+                }
         finally:
             if conn:
                 conn.close()
@@ -463,7 +473,8 @@ class SpamDetector:
             logger.error(f"❌ Error getting metrics history: {str(e)}", exc_info=True)
             return []
         finally:
-            conn.close()
+            if conn:
+                conn.close()
 
     def get_spam_trends(self, days=30):
         """Get spam trends over time."""
