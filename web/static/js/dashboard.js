@@ -220,6 +220,8 @@ function updateKeywords(data) {
 
 async function markAsSpam(commentId, isSpam) {
     try {
+        // Ensure isSpam is a boolean
+        isSpam = Boolean(isSpam);
         console.log(`[SPAM] Marking comment ${commentId} as spam=${isSpam}`);
         const requestData = { is_spam: isSpam };
         console.log('[SPAM] Request data:', requestData);
@@ -296,11 +298,11 @@ function updateCommentsTable(data) {
                         ${comment.mod_action || 'pending'}
                     </span>
                     <button onclick="markAsSpam('${comment.comment_id}', true)" 
-                        class="${comment.is_spam ? 'bg-yellow-500' : 'bg-gray-200'} text-white px-2 py-1 rounded text-xs">
+                        class="${Boolean(comment.is_spam) ? 'bg-yellow-500' : 'bg-gray-200'} text-white px-2 py-1 rounded text-xs">
                         Spam
                     </button>
                     <button onclick="markAsSpam('${comment.comment_id}', false)" 
-                        class="${!comment.is_spam ? 'bg-green-500' : 'bg-gray-200'} text-white px-2 py-1 rounded text-xs">
+                        class="${!Boolean(comment.is_spam) ? 'bg-green-500' : 'bg-gray-200'} text-white px-2 py-1 rounded text-xs">
                         Not Spam
                     </button>
                 </div>
