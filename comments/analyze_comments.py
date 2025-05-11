@@ -144,43 +144,40 @@ class CommentAnalyzer:
 
     def mark_comment_as_spam(self, comment_id, is_spam):
         """Mark a comment as spam/not spam and use it for training."""
+        conn = None
         try:
-            # First check if comment exists
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
+            # First verify the comment exists
             cursor.execute("SELECT text FROM comments WHERE comment_id = ?", (comment_id,))
             result = cursor.fetchone()
             if not result:
-                conn.close()
                 return {'status': 'error', 'error': f'Comment {comment_id} not found'}
             
-            # Mark comment and add to training data
-            self.spam_detector.mark_as_spam(comment_id, is_spam)
+            # Mark comment as spam using SpamDetector
+            success = self.spam_detector.mark_as_spam(comment_id, is_spam)
+            if not success:
+                return {'status': 'error', 'error': 'Failed to mark comment as spam'}
             
-            # Check for retraining
-            cursor.execute("""
-                SELECT COUNT(*) FROM spam_training 
-                WHERE trained_at > (
-                    SELECT COALESCE(MAX(created_at), '1970-01-01')
-                    FROM model_versions
-                    WHERE model_type = 'spam'
-                )
-            """)
+            # Get updated metrics
+            metrics = self.spam_detector.calculate_metrics()
             
-            new_samples = cursor.fetchone()[0]
-            conn.close()
-            
-            # Retrain if we have at least 10 new samples
-            if new_samples >= 10:
-                metrics = self.spam_detector.train()
-                return {'status': 'retrained', 'metrics': metrics}
-            
-            return {'status': 'marked'}
+            return {
+                'status': 'success',
+                'comment_id': comment_id,
+                'is_spam': is_spam,
+                'metrics': metrics
+            }
             
         except Exception as e:
             log_error(self.logger, e, f"Failed to mark comment {comment_id} as spam")
+            if conn:
+                conn.rollback()
             return {'status': 'error', 'error': str(e)}
+        finally:
+            if conn:
+                conn.close()
 
     def mark_comments_as_spam(self, comment_ids, is_spam):
         """Mark multiple comments as spam/not spam in bulk."""

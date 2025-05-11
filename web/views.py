@@ -248,13 +248,14 @@ def mark_comment_spam(comment_id):
         result = analyzer.mark_comment_as_spam(comment_id, is_spam)
         
         if result['status'] == 'error':
+            logger.error(f"Failed to mark comment as spam: {result['error']}")
             return jsonify({'error': result['error']}), 500
             
         # Return success response with status
         return jsonify(result)
         
     except Exception as e:
-        logger.error(f"Failed to mark comment as spam: {str(e)}")
+        logger.error(f"Failed to mark comment as spam: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/api/comments/mark_spam_bulk', methods=['POST'])
@@ -294,8 +295,12 @@ def get_spam_metrics():
         
         # Get current metrics
         current_metrics = detector.calculate_metrics()
-        if not current_metrics:
-            return jsonify({'error': 'No metrics data available yet'}), 404
+        if current_metrics is None:
+            logger.warning("No metrics data available yet - model may need training")
+            return jsonify({
+                'error': 'No metrics available yet. Try marking some comments as spam to train the model.',
+                'needs_training': True
+            }), 404
         
         # Get historical metrics
         metrics_history = detector.get_metrics_history(days)
@@ -310,5 +315,5 @@ def get_spam_metrics():
         })
         
     except Exception as e:
-        logger.error(f"Failed to get spam metrics: {str(e)}")
+        logger.error(f"Failed to get spam metrics: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
