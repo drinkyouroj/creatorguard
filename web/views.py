@@ -178,7 +178,7 @@ def get_comments(video_id):
         
         # Get paginated comments
         cursor.execute("""
-            SELECT id, comment_id, author, text, timestamp, classification, mod_action, 
+            SELECT id, id as comment_id, author, text, timestamp, classification, mod_action, 
                    emotional_score, is_spam, spam_score
             FROM comments 
             WHERE video_id = ?

@@ -266,13 +266,15 @@ class SpamDetector:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # Get comment text
-            cursor.execute("SELECT text FROM comments WHERE comment_id = ?", (comment_id,))
+            # Get comment text and verify comment exists
+            cursor.execute("SELECT id, text FROM comments WHERE id = ?", (comment_id,))
             result = cursor.fetchone()
             if not result:
-                raise ValueError(f"Comment {comment_id} not found")
+                logger.error(f"Comment {comment_id} not found")
+                return False
             
-            text = result[0]
+            comment_db_id = result[0]
+            text = result[1]
             
             try:
                 # Add to training data
@@ -280,16 +282,17 @@ class SpamDetector:
                     INSERT OR REPLACE INTO spam_training (
                         comment_id, text, is_spam, confidence, created_at
                     ) VALUES (?, ?, ?, ?, datetime('now'))
-                """, (comment_id, text, is_spam, confidence))
+                """, (comment_db_id, text, is_spam, confidence))
                 
                 # Update comment status
                 cursor.execute("""
                     UPDATE comments 
                     SET is_spam = ?, spam_score = ?, updated_at = datetime('now')
-                    WHERE comment_id = ?
-                """, (is_spam, 1.0 if is_spam else 0.0, comment_id))
+                    WHERE id = ?
+                """, (is_spam, 1.0 if is_spam else 0.0, comment_db_id))
                 
                 conn.commit()
+                logger.info(f"Successfully marked comment {comment_id} as {'spam' if is_spam else 'not spam'}")
                 
                 # Retrain model if we have enough new samples
                 cursor.execute("""
