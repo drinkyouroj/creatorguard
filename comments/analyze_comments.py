@@ -146,29 +146,44 @@ class CommentAnalyzer:
         """Mark a comment as spam/not spam and use it for training."""
         conn = None
         try:
+            # First verify the comment exists
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
-            # First verify the comment exists
             cursor.execute("SELECT text FROM comments WHERE comment_id = ?", (comment_id,))
             result = cursor.fetchone()
             if not result:
+                self.logger.error(f"Comment {comment_id} not found")
                 return {'status': 'error', 'error': f'Comment {comment_id} not found'}
             
-            # Mark comment as spam using SpamDetector
-            success = self.spam_detector.mark_as_spam(comment_id, is_spam)
-            if not success:
-                return {'status': 'error', 'error': 'Failed to mark comment as spam'}
+            text = result[0]
+            self.logger.info(f"Found comment {comment_id}: {text[:50]}...")
             
-            # Get updated metrics
-            metrics = self.spam_detector.calculate_metrics()
-            
-            return {
-                'status': 'success',
-                'comment_id': comment_id,
-                'is_spam': is_spam,
-                'metrics': metrics
-            }
+            try:
+                # Mark comment as spam using SpamDetector
+                success = self.spam_detector.mark_as_spam(comment_id, is_spam)
+                if not success:
+                    self.logger.error(f"SpamDetector.mark_as_spam failed for comment {comment_id}")
+                    return {'status': 'error', 'error': 'Failed to mark comment as spam'}
+                
+                # Get updated metrics
+                try:
+                    metrics = self.spam_detector.calculate_metrics()
+                except Exception as e:
+                    self.logger.warning(f"Failed to calculate metrics: {e}")
+                    metrics = None
+                
+                self.logger.info(f"Successfully marked comment {comment_id} as {'spam' if is_spam else 'not spam'}")
+                return {
+                    'status': 'success',
+                    'comment_id': comment_id,
+                    'is_spam': is_spam,
+                    'metrics': metrics
+                }
+                
+            except Exception as e:
+                self.logger.error(f"Error in SpamDetector operations: {e}")
+                raise
             
         except Exception as e:
             log_error(self.logger, e, f"Failed to mark comment {comment_id} as spam")
