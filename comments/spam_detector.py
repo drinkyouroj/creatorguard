@@ -263,6 +263,10 @@ class SpamDetector:
         """Mark a comment as spam/not spam for training."""
         conn = None
         try:
+            if not isinstance(is_spam, bool):
+                logger.error(f"[SPAM] Invalid is_spam value: {is_spam}, must be boolean")
+                return False
+                
             logger.info(f"[SPAM] SpamDetector marking comment {comment_id} as spam={is_spam}")
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -295,6 +299,13 @@ class SpamDetector:
                     SET is_spam = ?, spam_score = ?, updated_at = datetime('now')
                     WHERE comment_id = ?
                 """, (is_spam, 1.0 if is_spam else 0.0, comment_id))
+                
+                # Verify the update worked
+                cursor.execute("SELECT changes()")
+                if cursor.fetchone()[0] == 0:
+                    logger.error(f"[SPAM] Failed to update comment {comment_id} in database")
+                    conn.rollback()
+                    return False
                 
                 conn.commit()
                 logger.info(f"[SPAM] Successfully marked comment {comment_id} as {'spam' if is_spam else 'not spam'}")
