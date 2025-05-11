@@ -249,7 +249,13 @@ class SpamDetector:
 
     def calculate_metrics(self):
         """Calculate current model performance metrics."""
+        conn = None
         try:
+            # If model or vectorizer not initialized, return None
+            if not self.model or not self.vectorizer:
+                logger.warning("Model not initialized")
+                return None
+
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             
@@ -258,6 +264,7 @@ class SpamDetector:
                 SELECT c.text, st.is_spam
                 FROM spam_training st
                 JOIN comments c ON c.comment_id = st.comment_id
+                WHERE st.trained_at IS NOT NULL
                 ORDER BY st.trained_at DESC
                 LIMIT 1000
             """)
@@ -268,11 +275,7 @@ class SpamDetector:
                 return None
                 
             texts, labels = zip(*data)
-            
-            # If model or vectorizer not initialized, return None
-            if not self.model or not self.vectorizer:
-                logger.warning("Model not initialized")
-                return None
+            labels = np.array(labels)
             
             try:
                 # Transform texts using the same vectorizer that trained the model
@@ -280,6 +283,11 @@ class SpamDetector:
                 
                 # Get predictions
                 predictions = self.model.predict(features)
+                
+                # Ensure we have both positive and negative classes
+                if len(np.unique(labels)) < 2:
+                    logger.warning("Need both spam and non-spam samples for metrics calculation")
+                    return None
                 
                 # Calculate metrics
                 metrics = {
@@ -292,22 +300,21 @@ class SpamDetector:
                     'timestamp': datetime.utcnow().isoformat()
                 }
                 
-                # Save metrics
+                # Save metrics to database
                 cursor.execute("""
-                    INSERT INTO model_metrics (
-                        model_type, metrics, created_at
-                    ) VALUES (?, ?, ?)
-                """, ('spam', json.dumps(metrics), metrics['timestamp']))
+                    INSERT INTO model_metrics (model_type, metrics, created_at)
+                    VALUES (?, ?, datetime('now'))
+                """, ('spam', json.dumps(metrics)))
                 
                 conn.commit()
-                logger.info(f"✅ Calculated metrics: accuracy={metrics['accuracy']:.2f}, precision={metrics['precision']:.2f}")
+                logger.info(f"✅ Calculated metrics: accuracy={metrics['accuracy']:.2f}, f1={metrics['f1']:.2f}")
                 return metrics
                 
-            except ValueError as e:
-                logger.error(f"❌ Error during prediction: {str(e)}")
-                # Only retrain once
-                if "retraining" not in str(e):
-                    logger.warning("Attempting one-time retrain...")
+            except Exception as e:
+                logger.error(f"❌ Error in metrics calculation: {str(e)}", exc_info=True)
+                # Only retrain once if it's a feature mismatch
+                if "dimension" in str(e).lower() and "retraining" not in str(e):
+                    logger.warning("Feature mismatch detected, attempting one-time retrain...")
                     self.train(retrain=True)
                     return self.calculate_metrics()
                 return None
