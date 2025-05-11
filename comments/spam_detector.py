@@ -342,78 +342,41 @@ class SpamDetector:
                     logger.error(f"Error closing connection: {e}")
 
     def calculate_metrics(self):
-        """Calculate current model performance metrics."""
-        conn = None
+        """Calculate current model metrics."""
         try:
-            # If model or vectorizer not initialized, return None
-            if not self.model or not self.vectorizer:
-                logger.warning("Model not initialized")
+            if not hasattr(self, 'model') or not hasattr(self, 'vectorizer'):
+                logger.info("🆕 Initializing new spam detection model")
+                self.model = RandomForestClassifier()
+                self.vectorizer = TfidfVectorizer()
+                logger.warning("No metrics available - model not initialized")
                 return None
 
+            # Get all training data
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
-            # Get all labeled data
             cursor.execute("""
-                SELECT c.text, st.is_spam
-                FROM spam_training st
-                JOIN comments c ON c.comment_id = st.comment_id
-                WHERE st.trained_at IS NOT NULL
-                ORDER BY st.trained_at DESC
-                LIMIT 1000
+                SELECT text, is_spam
+                FROM spam_training
+                WHERE trained_at IS NOT NULL
             """)
-            
-            data = cursor.fetchall()
-            if not data:
-                logger.warning("No labeled data available for metrics calculation")
+            results = cursor.fetchall()
+            conn.close()
+
+            if not results:
+                logger.warning("No training data available yet")
                 return None
-                
-            texts, labels = zip(*data)
-            labels = np.array(labels)
-            
-            try:
-                # Transform texts using the same vectorizer that trained the model
-                features = self.vectorizer.transform(texts)
-                
-                # Get predictions
-                predictions = self.model.predict(features)
-                
-                # Ensure we have both positive and negative classes
-                unique_labels = np.unique(labels)
-                if len(unique_labels) < 2:
-                    logger.warning("Need both spam and non-spam samples for metrics calculation")
-                    return None
-                
-                # Calculate metrics
-                metrics = {
-                    'accuracy': float(accuracy_score(labels, predictions)),
-                    'precision': float(precision_score(labels, predictions)),
-                    'recall': float(recall_score(labels, predictions)),
-                    'f1': float(f1_score(labels, predictions)),
-                    'total_samples': len(labels),
-                    'spam_ratio': float(np.mean(labels == 1)),
-                    'timestamp': datetime.utcnow().isoformat()
+
+            # Check if model is trained
+            if not hasattr(self.model, 'estimators_'):
+                logger.warning("Model not trained yet")
+                return {
+                    'accuracy': None,
+                    'top_features': {},
+                    'total_samples': len(results),
+                    'spam_samples': sum(1 for r in results if r[1]),
+                    'ham_samples': sum(1 for r in results if not r[1]),
+                    'model_status': 'untrained'
                 }
-                
-                # Save metrics to database
-                cursor.execute("""
-                    INSERT INTO model_metrics (
-                        model_type, metrics, created_at
-                    ) VALUES (?, ?, datetime('now'))
-                """, ('spam', json.dumps(metrics)))
-                
-                conn.commit()
-                logger.info(f"✅ Calculated metrics: accuracy={metrics['accuracy']:.2f}, f1={metrics['f1']:.2f}")
-                return metrics
-                
-            except Exception as e:
-                logger.error(f"❌ Error in metrics calculation: {str(e)}", exc_info=True)
-                # Only retrain once if it's a feature mismatch
-                if "dimension" in str(e).lower() and "retraining" not in str(e):
-                    logger.warning("Feature mismatch detected, attempting one-time retrain...")
-                    self.train(retrain=True)
-                    return self.calculate_metrics()
-                return None
                 return None
             
         except Exception as e:
