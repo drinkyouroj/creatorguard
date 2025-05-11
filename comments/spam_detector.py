@@ -204,6 +204,7 @@ class SpamDetector:
 
     def mark_as_spam(self, comment_id, is_spam, confidence=1.0):
         """Mark a comment as spam/not spam for training."""
+        conn = None
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -215,29 +216,35 @@ class SpamDetector:
                 raise ValueError(f"Comment {comment_id} not found")
             
             text = result[0]
-            features = json.dumps(self.extract_features(text))
             
             # Add to training data
             cursor.execute("""
-                INSERT INTO spam_training (comment_id, text, features, is_spam, confidence)
-                VALUES (?, ?, ?, ?, ?)
-            """, (comment_id, text, features, is_spam, confidence))
-            
-            # Update comment status
-            cursor.execute("""
-                UPDATE comments 
-                SET is_spam = ?,
-                    spam_features = ?
-                WHERE comment_id = ?
-            """, (is_spam, features, comment_id))
+                INSERT OR REPLACE INTO spam_training (comment_id, is_spam, confidence, created_at)
+                VALUES (?, ?, ?, datetime('now'))
+            """, (comment_id, is_spam, confidence))
             
             conn.commit()
+            
+            # Retrain model if we have enough new samples
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM spam_training
+                WHERE trained_at IS NULL
+            """)
+            
+            untrained_count = cursor.fetchone()[0]
+            if untrained_count >= 10:
+                self.train()
+            
+            return True
+            
             logger.info(f"✅ Marked comment {comment_id} as {'spam' if is_spam else 'not spam'}")
             
         except Exception as e:
-            logger.error(f"❌ Error marking comment as spam: {e}")
-            conn.rollback()
-        finally:
+            logger.error(f"❌ Error marking comment as spam: {e}", exc_info=True)
+            if conn:
+                conn.rollback()
+            return False
             conn.close()
 
     def calculate_metrics(self):
@@ -306,10 +313,11 @@ class SpamDetector:
                 return None
             
         except Exception as e:
-            logger.error(f"❌ Error calculating metrics: {str(e)}")
+            logger.error(f"❌ Error calculating metrics: {str(e)}", exc_info=True)
             return None
         finally:
-            conn.close()
+            if conn:
+                conn.close()
 
     def get_metrics_history(self, days=30):
         """Get historical metrics for the past N days."""
@@ -334,7 +342,7 @@ class SpamDetector:
             ]
             
         except Exception as e:
-            logger.error(f"❌ Error getting metrics history: {e}")
+            logger.error(f"❌ Error getting metrics history: {str(e)}", exc_info=True)
             return []
         finally:
             conn.close()
