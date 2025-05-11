@@ -200,6 +200,25 @@ class SpamDetector:
     def predict_spam(self, text):
         """Predict if text is spam and return probability."""
         try:
+            # Check for common non-spam phrases (whitelist)
+            whitelist_phrases = [
+                'great video', 'thanks for sharing', 'love this', 'awesome content',
+                'well done', 'thank you', 'good job', 'nice video', 'interesting',
+                'learned a lot', 'helpful', 'subscribed', 'keep it up', 'looking forward',
+                'appreciate', 'informative', 'enjoyed', 'fantastic', 'excellent'
+            ]
+            
+            text_lower = text.lower()
+            # If text contains a whitelisted phrase and is short, it's likely not spam
+            if any(phrase in text_lower for phrase in whitelist_phrases) and len(text) < 100:
+                logger.info(f"Whitelist match found in comment: '{text[:30]}...'")
+                return {
+                    'is_spam': False,
+                    'confidence': 0.9,
+                    'spam_score': 0.1,
+                    'spam_features': {'whitelist_match': True}
+                }
+            
             # Check if model is trained
             if not hasattr(self.model, 'estimators_'):
                 logger.warning("Model not trained yet, returning default prediction")
@@ -228,13 +247,17 @@ class SpamDetector:
                 proba = self.model.predict_proba(features)[0]
 
             # Get class probabilities
-            spam_class_idx = list(self.model.classes_).index(True) if True in self.model.classes_ else 0
+            # Make sure we correctly identify which index corresponds to spam (True)
+            spam_class_idx = 1 if len(self.model.classes_) > 1 and self.model.classes_[1] == True else 0
             spam_probability = float(proba[spam_class_idx])
             
-            # Use a higher threshold (0.7) for determining spam to reduce false positives
-            # The default threshold is 0.5, but we're being more conservative
-            is_spam_prediction = spam_probability > 0.7
+            # Use a very high threshold (0.85) for determining spam to reduce false positives
+            # The default threshold is 0.5, but we're being extremely conservative
+            is_spam_prediction = spam_probability > 0.85
             confidence = max(spam_probability, 1.0 - spam_probability)
+            
+            # Log the prediction details for debugging
+            logger.info(f"Spam prediction: probability={spam_probability:.2f}, threshold=0.85, is_spam={is_spam_prediction}")
             
             # Get feature importance for this prediction
             feature_names = self.vectorizer.get_feature_names_out()
@@ -257,9 +280,15 @@ class SpamDetector:
                 'all_caps_ratio': sum(1 for c in text if c.isupper()) / max(len(text), 1)
             }
             
-            # If any strong spam indicators are present, increase confidence
-            if sum(spam_indicators.values()) >= 3 and spam_probability > 0.5:
+            # Only mark as spam if MULTIPLE strong indicators are present AND probability is already high
+            # This makes the rule-based system more conservative
+            if sum(spam_indicators.values()) >= 4 and spam_probability > 0.75:
+                logger.info(f"Rule-based spam detection triggered: indicators={sum(spam_indicators.values())}, probability={spam_probability:.2f}")
                 is_spam_prediction = True
+            
+            # Force non-spam for very short messages (likely harmless)
+            if len(text) < 20 or len(text.split()) < 5:
+                is_spam_prediction = False
             
             return {
                 'is_spam': bool(is_spam_prediction),
