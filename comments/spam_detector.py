@@ -137,10 +137,23 @@ class SpamDetector:
                 cursor = conn.cursor()
                 
                 version = datetime.now().strftime('%Y%m%d_%H%M%S')
+                parameters = json.dumps(self.model.get_params())
+                metrics_json = json.dumps(metrics) if metrics else '{}'
+                
+                cursor.execute("""
+                    INSERT INTO model_versions (
+                        model_type, version, parameters, metrics, created_at
+                    ) VALUES (?, ?, ?, ?, datetime('now'))
+                """, ('spam', version, parameters, metrics_json))
+                
+                conn.commit()
+                logger.info(f"✅ Saved model version {version}")
                 
             except Exception as e:
                 # Restore backups if save failed
                 logger.error(f"❌ Failed to save model: {str(e)}")
+                if conn:
+                    conn.rollback()
                 for path in [model_path, vectorizer_path]:
                     backup_path = f"{path}.bak"
                     if os.path.exists(backup_path):
@@ -330,7 +343,8 @@ class SpamDetector:
                 predictions = self.model.predict(features)
                 
                 # Ensure we have both positive and negative classes
-                if len(np.unique(labels)) < 2:
+                unique_labels = np.unique(labels)
+                if len(unique_labels) < 2:
                     logger.warning("Need both spam and non-spam samples for metrics calculation")
                     return None
                 
@@ -341,14 +355,15 @@ class SpamDetector:
                     'recall': float(recall_score(labels, predictions)),
                     'f1': float(f1_score(labels, predictions)),
                     'total_samples': len(labels),
-                    'spam_ratio': sum(labels) / len(labels),
+                    'spam_ratio': float(np.mean(labels == 1)),
                     'timestamp': datetime.utcnow().isoformat()
                 }
                 
                 # Save metrics to database
                 cursor.execute("""
-                    INSERT INTO model_metrics (model_type, metrics, created_at)
-                    VALUES (?, ?, datetime('now'))
+                    INSERT INTO model_metrics (
+                        model_type, metrics, created_at
+                    ) VALUES (?, ?, datetime('now'))
                 """, ('spam', json.dumps(metrics)))
                 
                 conn.commit()
@@ -359,6 +374,10 @@ class SpamDetector:
                 logger.error(f"❌ Error in metrics calculation: {str(e)}", exc_info=True)
                 # Only retrain once if it's a feature mismatch
                 if "dimension" in str(e).lower() and "retraining" not in str(e):
+                    logger.warning("Feature mismatch detected, attempting one-time retrain...")
+                    self.train(retrain=True)
+                    return self.calculate_metrics()
+                return None
                     logger.warning("Feature mismatch detected, attempting one-time retrain...")
                     self.train(retrain=True)
                     return self.calculate_metrics()
