@@ -218,6 +218,56 @@ function updateKeywords(data) {
     });
 }
 
+async function markAsSpam(commentId, isSpam) {
+    try {
+        const response = await fetch(`/api/comments/${commentId}/mark_spam`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ is_spam: isSpam })
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+            showNotification(isSpam ? 'Marked as spam' : 'Marked as not spam', 'success');
+            // Refresh comments to show updated status
+            loadComments(currentVideoId, currentPage);
+            return true;
+        } else {
+            showNotification(data.error || 'Failed to mark comment as spam', 'error');
+            return false;
+        }
+    } catch (error) {
+        console.error('Error marking comment as spam:', error);
+        showNotification('Error marking comment as spam', 'error');
+        return false;
+    }
+}
+
+function showNotification(message, type = 'info') {
+    const notification = document.getElementById('notification');
+    if (!notification) {
+        const div = document.createElement('div');
+        div.id = 'notification';
+        div.className = 'fixed top-4 right-4 p-4 rounded shadow-lg transition-opacity duration-500';
+        document.body.appendChild(div);
+    }
+    
+    const notificationEl = document.getElementById('notification');
+    notificationEl.textContent = message;
+    notificationEl.className = `fixed top-4 right-4 p-4 rounded shadow-lg transition-opacity duration-500 ${
+        type === 'error' ? 'bg-red-500 text-white' :
+        type === 'success' ? 'bg-green-500 text-white' :
+        'bg-blue-500 text-white'
+    }`;
+    
+    setTimeout(() => {
+        notificationEl.style.opacity = '0';
+        setTimeout(() => notificationEl.style.display = 'none', 500);
+    }, 3000);
+}
+
 function updateCommentsTable(data) {
     const tbody = document.getElementById('commentsTable');
     tbody.innerHTML = data.comments.map(comment => `
@@ -231,10 +281,20 @@ function updateCommentsTable(data) {
                 </span>
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                    ${getActionColor(comment.mod_action)}">
-                    ${comment.mod_action || 'pending'}
-                </span>
+                <div class="flex items-center space-x-2">
+                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                        ${getActionColor(comment.mod_action)}">
+                        ${comment.mod_action || 'pending'}
+                    </span>
+                    <button onclick="markAsSpam('${comment.comment_id}', true)" 
+                        class="${comment.is_spam ? 'bg-yellow-500' : 'bg-gray-200'} text-white px-2 py-1 rounded text-xs">
+                        Spam
+                    </button>
+                    <button onclick="markAsSpam('${comment.comment_id}', false)" 
+                        class="${!comment.is_spam ? 'bg-green-500' : 'bg-gray-200'} text-white px-2 py-1 rounded text-xs">
+                        Not Spam
+                    </button>
+                </div>
             </td>
             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                 ${formatDate(comment.timestamp)}
