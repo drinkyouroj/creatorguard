@@ -220,26 +220,35 @@ function updateKeywords(data) {
 
 async function markAsSpam(commentId, isSpam) {
     try {
+        console.log(`[SPAM] Marking comment ${commentId} as spam=${isSpam}`);
+        const requestData = { is_spam: isSpam };
+        console.log('[SPAM] Request data:', requestData);
+        
         const response = await fetch(`/api/comments/${commentId}/mark_spam`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ is_spam: isSpam })
+            body: JSON.stringify(requestData)
         });
 
+        console.log(`[SPAM] Response status: ${response.status}`);
         const data = await response.json();
+        console.log('[SPAM] Response data:', data);
+        
         if (response.ok) {
+            console.log('[SPAM] Request successful');
             showNotification(isSpam ? 'Marked as spam' : 'Marked as not spam', 'success');
             // Refresh comments to show updated status
             loadComments(currentVideoId, currentPage);
             return true;
         } else {
+            console.error('[SPAM] Request failed:', data.error);
             showNotification(data.error || 'Failed to mark comment as spam', 'error');
             return false;
         }
     } catch (error) {
-        console.error('Error marking comment as spam:', error);
+        console.error('[SPAM] Error marking comment as spam:', error);
         showNotification('Error marking comment as spam', 'error');
         return false;
     }
