@@ -56,14 +56,25 @@ class CommentAnalyzer:
             # Get spam prediction
             spam_result = self.spam_detector.predict_spam(text)
             
-            # Determine classification
-            classification = self.determine_classification(
+            # Determine content classification (spam/toxic/questionable/safe)
+            content_classification = self.determine_classification(
                 toxicity_scores.get('toxicity', 0),
-                spam_result['spam_score']
+                spam_result['spam_score'],
+                sentiment_scores['compound']
             )
             
+            # Create a combined classification that includes both content and sentiment
+            # Format: "content_classification:sentiment"
+            combined_classification = f"{content_classification}:{sentiment}"
+            
+            self.logger.info(f"Classified comment as '{combined_classification}': "
+                           f"toxicity={toxicity_scores.get('toxicity', 0):.2f}, "
+                           f"spam={spam_result['spam_score']:.2f}, "
+                           f"sentiment={sentiment_scores['compound']:.2f}")
+            
             return {
-                'classification': classification,
+                'classification': content_classification,  # Keep original field for backward compatibility
+                'combined_classification': combined_classification,  # New field with combined info
                 'toxicity_score': toxicity_scores.get('toxicity', 0),
                 'toxicity_details': json.dumps(toxicity_scores),
                 'sentiment': sentiment,
@@ -77,15 +88,26 @@ class CommentAnalyzer:
             log_error(self.logger, e, f"Failed to analyze comment: {text[:100]}...")
             return None
 
-    def determine_classification(self, toxicity_score, spam_score):
-        """Determine comment classification based on toxicity and spam scores."""
-        if spam_score >= 0.7:
+    def determine_classification(self, toxicity_score, spam_score, sentiment_score=None):
+        """Determine comment classification based on toxicity and spam scores.
+        
+        Classification categories:
+        - spam: Comments identified as spam with high confidence
+        - toxic: Non-spam comments with high toxicity
+        - questionable: Comments with moderate toxicity or spam indicators
+        - safe: Comments with low toxicity and spam scores
+        
+        Sentiment is handled separately and not part of the classification.
+        """
+        # Use more conservative thresholds to avoid misclassification
+        if spam_score >= 0.85:  # Only very high confidence spam
             return 'spam'
-        elif toxicity_score >= 0.8:
+        elif toxicity_score >= 0.8:  # High toxicity
             return 'toxic'
-        elif toxicity_score >= 0.5 or spam_score >= 0.4:
+        elif toxicity_score >= 0.5 or spam_score >= 0.6:  # Moderate issues
             return 'questionable'
-        return 'safe'
+        else:
+            return 'safe'
 
     def analyze_comments(self, video_id):
         """Analyze all comments for a video."""
@@ -115,19 +137,22 @@ class CommentAnalyzer:
                         continue
                     
                     # Update database
+                    # Store both the content classification and sentiment information
                     cursor.execute("""
                         UPDATE comments 
                         SET classification = ?,
                             toxicity_score = ?,
                             toxicity_details = ?,
+                            sentiment_scores = ?,
                             spam_score = ?,
                             is_spam = ?,
                             spam_features = ?
                         WHERE comment_id = ?
                     """, (
-                        results['classification'],
+                        results['combined_classification'],  # Use combined classification
                         results['toxicity_score'],
                         results['toxicity_details'],
+                        json.dumps({'sentiment': results['sentiment'], 'scores': results['sentiment_scores']}),
                         results['spam_score'],
                         results['is_spam'],
                         results['spam_features'],
