@@ -185,19 +185,20 @@ class SpamDetector:
             # Extract text features
             text_features = self.extract_features(text)
             
-            # Transform text to feature vector
             try:
+                # Try to transform text to feature vector
                 features = self.vectorizer.transform([text])
-            except Exception as e:
-                logger.error(f"❌ Error transforming text: {str(e)}")
-                # Retrain the model to update the vectorizer
-                logger.info("Retraining model due to feature mismatch")
+                prediction = self.model.predict(features)[0]
+                proba = self.model.predict_proba(features)[0]
+            except (ValueError, AttributeError) as e:
+                # If there's a feature mismatch, retrain the model
+                logger.warning(f"Feature mismatch detected, retraining model: {e}")
                 self.train(retrain=True)
+                # Try again after retraining
                 features = self.vectorizer.transform([text])
+                prediction = self.model.predict(features)[0]
+                proba = self.model.predict_proba(features)[0]
 
-            # Get prediction
-            prediction = self.model.predict(features)[0]
-            proba = self.model.predict_proba(features)[0]
             confidence = float(np.max(proba))
             
             # Get feature importance for this prediction
@@ -220,11 +221,12 @@ class SpamDetector:
             }
             
         except Exception as e:
-            logger.error(f"❌ Error predicting spam: {str(e)}")
+            logger.error(f"❌ Error predicting spam: {str(e)}", exc_info=True)
             return {
                 'is_spam': False,
                 'confidence': 0.5,
-                'spam_score': 0.5
+                'spam_score': 0.5,
+                'spam_features': {}
             }
 
     def train(self, retrain=False):
@@ -417,9 +419,18 @@ class SpamDetector:
             texts = [row[0] for row in results]
             labels = [row[1] for row in results]
 
-            # Transform texts using vectorizer
-            X = self.vectorizer.transform(texts)
-            y_pred = self.model.predict(X)
+            try:
+                # Try to transform texts using vectorizer
+                X = self.vectorizer.transform(texts)
+                y_pred = self.model.predict(X)
+            except (ValueError, AttributeError) as e:
+                # If there's a feature mismatch, retrain the model
+                logger.warning(f"Feature mismatch detected, retraining model: {e}")
+                self.train(retrain=True)
+                # Try again after retraining
+                X = self.vectorizer.transform(texts)
+                y_pred = self.model.predict(X)
+
             accuracy = accuracy_score(labels, y_pred)
 
             # Get feature importance
