@@ -1,6 +1,10 @@
 import json
 import sqlite3
+import logging
 from .spam_detector import SpamDetector
+
+logger = logging.getLogger('SpamMetrics')
+logging.basicConfig(level=logging.INFO)
 
 class SpamMetrics:
     def __init__(self, db_path):
@@ -36,35 +40,34 @@ class SpamMetrics:
     
     def _get_sample_counts(self, video_id=None):
         """Get counts of spam and ham samples in the training data"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
         try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
             query = "SELECT COUNT(*) as count, is_spam FROM comments WHERE is_spam IS NOT NULL"
             params = []
-            
             if video_id:
                 query += " AND video_id = ?"
                 params.append(video_id)
-            
             query += " GROUP BY is_spam"
-            
             cursor.execute(query, params)
             results = cursor.fetchall()
-            
             spam_count = 0
             ham_count = 0
-            
             for row in results:
                 if row['is_spam']:
                     spam_count = row['count']
                 else:
                     ham_count = row['count']
-            
             return spam_count, ham_count
+        except Exception as e:
+            logger.error(f"Error in _get_sample_counts: {e}")
+            return 0, 0
         finally:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
     
     def _get_top_features(self, limit=10):
         """Get the top spam features by importance"""

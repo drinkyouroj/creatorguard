@@ -21,7 +21,12 @@ class CommentAnalyzer:
     def __init__(self, db_path='creatorguard.db'):
         """Initialize the comment analyzer."""
         self.db_path = db_path
-        self.logger = setup_logger('comment_analyzer')
+        try:
+            self.logger = setup_logger('comment_analyzer')
+        except Exception:
+            import logging
+            self.logger = logging.getLogger('comment_analyzer')
+            logging.basicConfig(level=logging.INFO)
         self.spam_detector = SpamDetector(db_path)
         
         try:
