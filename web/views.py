@@ -241,8 +241,14 @@ def import_video():
 def mark_comment_spam(comment_id):
     """Mark a comment as spam or not spam."""
     try:
+        logger.info(f"Received request to mark comment {comment_id} as spam")
         data = request.get_json()
+        if data is None:
+            logger.error("No JSON data received in request")
+            return jsonify({'error': 'No JSON data received'}), 400
+            
         is_spam = data.get('is_spam', True)
+        logger.info(f"Marking comment {comment_id} as spam={is_spam}")
         
         analyzer = CommentAnalyzer()
         result = analyzer.mark_comment_as_spam(comment_id, is_spam)
@@ -252,6 +258,7 @@ def mark_comment_spam(comment_id):
             return jsonify({'error': result['error']}), 500
             
         # Return success response with status
+        logger.info(f"Successfully marked comment {comment_id} as spam={is_spam}")
         return jsonify(result)
         
     except Exception as e:
