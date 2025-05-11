@@ -137,20 +137,6 @@
                 </div>
                 
                 <div class="mt-4">
-                    <div class="flex space-x-4 mb-4">
-                        <button 
-                            v-for="filter in ['all', 'spam', 'toxic', 'questionable', 'safe']"
-                            :key="filter"
-                            @click="filterComments(filter)"
-                            :class="{
-                                'px-4 py-2 rounded-md': true,
-                                'bg-blue-600 text-white': currentFilter === filter,
-                                'bg-gray-200 text-gray-700': currentFilter !== filter
-                            }"
-                        >
-                            [[ filter.charAt(0).toUpperCase() + filter.slice(1) ]]
-                        </button>
-                    </div>
                     
                     <!-- Spam Metrics Section -->
                     <div class="bg-white p-4 rounded-lg shadow-sm mt-4 mb-6">
@@ -379,7 +365,7 @@
         </div>
 
         <!-- Metrics Modal -->
-        <div v-if="showMetrics" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full">
+        <div v-if="showMetrics" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
             <div class="relative top-20 mx-auto p-5 border w-4/5 shadow-lg rounded-md bg-white">
                 <div class="flex justify-between items-center pb-3">
                     <h3 class="text-xl font-medium text-gray-900">Spam Detection Metrics</h3>
@@ -389,18 +375,22 @@
                 </div>
                 
                 <div class="mt-4">
-                    <!-- Current Metrics -->
-                    <div v-if="metrics.current" class="grid grid-cols-4 gap-4 mb-8">
-                        <div class="bg-white p-4 rounded-lg shadow">
+                    <!-- Global Metrics -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                        <div class="bg-gray-50 p-3 rounded">
                             <div class="text-sm text-gray-500">Accuracy</div>
-                            <div class="text-2xl font-semibold text-gray-900">
-                                [[ (metrics.current.accuracy * 100).toFixed(1) ]]%
+                            <div class="text-xl font-semibold" v-if="metrics.accuracy !== null">
+                                [[ (metrics.accuracy * 100).toFixed(1) ]]%
                             </div>
+                            <div class="text-xl font-semibold" v-else>--</div>
                         </div>
-                        <div class="bg-white p-4 rounded-lg shadow">
-                            <div class="text-sm text-gray-500">Precision</div>
-                            <div class="text-2xl font-semibold text-gray-900">
-                                [[ (metrics.current.precision * 100).toFixed(1) ]]%
+                        <div class="bg-gray-50 p-3 rounded">
+                            <div class="text-sm text-gray-500">Training Samples</div>
+                            <div class="text-xl font-semibold">
+                                [[ metrics.total_samples ]]
+                            </div>
+                            <div class="text-xs text-gray-500">
+                                Spam: [[ metrics.spam_samples ]] / Not Spam: [[ metrics.ham_samples ]]
                             </div>
                         </div>
                         <div class="bg-white p-4 rounded-lg shadow">
@@ -409,24 +399,29 @@
                                 [[ (metrics.current.recall * 100).toFixed(1) ]]%
                             </div>
                         </div>
-                        <div class="bg-white p-4 rounded-lg shadow">
-                            <div class="text-sm text-gray-500">F1 Score</div>
-                            <div class="text-2xl font-semibold text-gray-900">
-                                [[ (metrics.current.f1 * 100).toFixed(1) ]]%
+                        <div class="bg-gray-50 p-3 rounded">
+                            <div class="text-sm text-gray-500">Model Status</div>
+                            <div class="text-xl font-semibold">
+                                <span :class="{
+                                    'text-green-600': metrics.model_status === 'trained',
+                                    'text-yellow-600': metrics.model_status === 'untrained',
+                                    'text-red-600': metrics.model_status === 'error'
+                                }">
+                                    [[ metrics.model_status ]]
+                                </span>
                             </div>
                         </div>
                     </div>
                     
-                    <!-- Trends Chart -->
-                    <div class="bg-white p-4 rounded-lg shadow mb-8">
-                        <h4 class="text-lg font-medium text-gray-900 mb-4">Spam Trends</h4>
-                        <canvas ref="trendChart" width="400" height="200"></canvas>
-                    </div>
-                    
-                    <!-- Metrics History -->
-                    <div class="bg-white p-4 rounded-lg shadow">
-                        <h4 class="text-lg font-medium text-gray-900 mb-4">Model Performance History</h4>
-                        <canvas ref="metricsChart" width="400" height="200"></canvas>
+                    <!-- Top Features -->
+                    <div v-if="metrics.top_features && Object.keys(metrics.top_features).length > 0" class="bg-white p-4 rounded-lg shadow mb-8">
+                        <h4 class="text-lg font-medium text-gray-900 mb-4">Top Spam Features</h4>
+                        <div class="flex flex-wrap gap-2">
+                            <span v-for="(value, key) in metrics.top_features" :key="key"
+                                  class="inline-block px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded">
+                                [[ key ]] ([[ (value * 100).toFixed(1) ]]%)
+                            </span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -824,41 +819,41 @@
                             this.loadingMetrics = true;
                             this.showMetrics = true;
                             
+                            // Fetch global spam metrics
                             const response = await axios.get('/api/metrics/spam');
-                            if (!response.data) {
-                                throw new Error('No metrics data received');
-                            }
+                            console.log('Metrics response:', response.data);
                             
-                            this.metrics = {
-                                current: response.data.current || null,
-                                history: response.data.history || [],
-                                trends: response.data.trends || []
+                            // Use the metrics data directly
+                            this.metrics = response.data || {
+                                accuracy: null,
+                                total_samples: 0,
+                                spam_samples: 0,
+                                ham_samples: 0,
+                                model_status: 'error',
+                                top_features: {}
                             };
                             
                             // Wait for Vue to update the DOM
                             await this.$nextTick();
                             
-                            if (this.metrics.trends.length > 0) {
-                                this.renderTrendChart();
-                            }
-                            
-                            if (this.metrics.history.length > 0) {
-                                this.renderMetricsChart();
-                            }
-                            
                         } catch (error) {
                             console.error('Error fetching metrics:', error);
-                            alert(error.response?.data?.error || 'Failed to load metrics. Please try again.');
+                            this.showNotification('Failed to load metrics: ' + error.message, 'error');
+                            this.metrics = {
+                                accuracy: null,
+                                total_samples: 0,
+                                spam_samples: 0,
+                                ham_samples: 0,
+                                model_status: 'error',
+                                top_features: {}
+                            };
                         } finally {
                             this.loadingMetrics = false;
                         }
                     },
+                    
                     closeMetrics() {
                         this.showMetrics = false;
-                        if (this.trendChart) {
-                            this.trendChart.destroy();
-                            this.trendChart = null;
-                        }
                         if (this.metricsChart) {
                             this.metricsChart.destroy();
                             this.metricsChart = null;
