@@ -200,7 +200,14 @@ class SpamDetector:
                 prediction = self.model.predict(features)[0]
                 proba = self.model.predict_proba(features)[0]
 
-            confidence = float(np.max(proba))
+            # Get class probabilities
+            spam_class_idx = list(self.model.classes_).index(True) if True in self.model.classes_ else 0
+            spam_probability = float(proba[spam_class_idx])
+            
+            # Use a higher threshold (0.7) for determining spam to reduce false positives
+            # The default threshold is 0.5, but we're being more conservative
+            is_spam_prediction = spam_probability > 0.7
+            confidence = max(spam_probability, 1.0 - spam_probability)
             
             # Get feature importance for this prediction
             feature_names = self.vectorizer.get_feature_names_out()
@@ -211,13 +218,30 @@ class SpamDetector:
                 reverse=True
             )[:5])
             
+            # Extract common spam indicators
+            text_lower = text.lower()
+            spam_indicators = {
+                'has_url': 1 if 'http' in text_lower or 'www.' in text_lower else 0,
+                'has_price': 1 if '$' in text or '€' in text or 'price' in text_lower else 0,
+                'has_crypto': 1 if 'crypto' in text_lower or 'bitcoin' in text_lower or 'eth' in text_lower else 0,
+                'has_promotion': 1 if 'discount' in text_lower or 'offer' in text_lower or 'free' in text_lower else 0,
+                'has_contact': 1 if 'contact' in text_lower or 'email' in text_lower or 'call' in text_lower else 0,
+                'excessive_punctuation': 1 if text.count('!') > 3 or text.count('?') > 3 else 0,
+                'all_caps_ratio': sum(1 for c in text if c.isupper()) / max(len(text), 1)
+            }
+            
+            # If any strong spam indicators are present, increase confidence
+            if sum(spam_indicators.values()) >= 3 and spam_probability > 0.5:
+                is_spam_prediction = True
+            
             return {
-                'is_spam': bool(prediction),
+                'is_spam': bool(is_spam_prediction),
                 'confidence': confidence,
-                'spam_score': confidence if prediction else 1.0 - confidence,
+                'spam_score': spam_probability,
                 'spam_features': {
                     'text_features': text_features,
-                    'important_words': top_features
+                    'important_words': top_features,
+                    'spam_indicators': spam_indicators
                 }
             }
             
@@ -255,8 +279,18 @@ class SpamDetector:
             
             # Always reinitialize model and vectorizer
             logger.info("Initializing new model and vectorizer")
-            self.model = RandomForestClassifier(n_estimators=100, random_state=42)
-            self.vectorizer = TfidfVectorizer(max_features=1000)
+            # Use class_weight='balanced' to handle imbalanced data
+            self.model = RandomForestClassifier(
+                n_estimators=100, 
+                random_state=42,
+                class_weight='balanced',
+                min_samples_leaf=2
+            )
+            self.vectorizer = TfidfVectorizer(
+                max_features=1000,
+                min_df=2,
+                stop_words='english'
+            )
             
             # Extract text features using TF-IDF
             logger.info("Extracting text features")
